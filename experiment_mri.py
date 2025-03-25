@@ -6,6 +6,14 @@ from modules.transforms import KspaceLDMDataTransform, Kspace3DLDMDataTransform
 from modules.autoencoders import Encoder,Decoder
 from pl_modules.new import AutoencoderKL
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+
+model_checkpoint = ModelCheckpoint(
+        save_top_k=2,
+        monitor="val_loss",
+        mode="min",
+        filename="pixelcnn-kspace-{epoch:02d}-{val_loss:.2f}"
+    )
 
 if __name__ == "__main__":
     dd_config = {
@@ -21,7 +29,7 @@ if __name__ == "__main__":
       "dropout": 0.0
     }
     model = AutoencoderKL(ddconfig=dd_config, lossconfig=None, embed_dim=2)
-    trainer = pl.Trainer(devices=1, max_epochs=5)
+    trainer = pl.Trainer(devices=1, max_epochs=150)
     mask_type = "random"
     center_fractions = [0.08, 0.04]
     accelerations = [4, 8]
@@ -29,17 +37,17 @@ if __name__ == "__main__":
         mask_type, center_fractions, accelerations
     )
     # use random masks for train transform, fixed masks for val transform
-    train_transform = KspaceLDMDataTransform(mask_func=mask, use_seed=False)
-    val_transform = KspaceLDMDataTransform(mask_func=mask)
+    train_transform = KspaceLDMDataTransform()
+    val_transform = KspaceLDMDataTransform()
     test_transform = KspaceLDMDataTransform()
     # ptl data module - this handles data loaders
-    data_module = FastMriDataModule(
-        data_path=Path("/vol/datasets/cil/2021_11_23_fastMRI_data/knee/unzipped"),
+    dm = FastMriDataModule(
+        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
         test_transform=test_transform,
-        combine_train_val=True,
+        combine_train_val=False,
         test_split="test",
         sample_rate=None,
         batch_size=1,
@@ -47,7 +55,5 @@ if __name__ == "__main__":
         distributed_sampler=False,
         use_dataset_cache_file=True
     )
-    for batch in data_module.train_dataloader():
-        print(batch.kspace.shape)
-        break
-    trainer.fit(model,data_module.train_dataloader())
+
+    trainer.fit(model,datamodule=dm)

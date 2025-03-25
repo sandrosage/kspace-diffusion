@@ -66,18 +66,25 @@ class AutoencoderKL(pl.LightningModule):
         
 
     def validation_step(self, batch, batch_idx):
-        inputs = self.get_input(batch, self.image_key)
-        reconstructions, posterior = self(inputs)
-        aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
-                                        last_layer=self.get_last_layer(), split="val")
-
-        discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
-
-        self.log("val/rec_loss", log_dict_ae["val/rec_loss"])
-        self.log_dict(log_dict_ae)
-        self.log_dict(log_dict_disc)
-        return self.log_dict
+        input = batch.kspace.permute(0,3,1,2)
+        reconstructions, _, kl = self(input)
+        if input.shape[-1] != reconstructions.shape[-1]:
+            input, reconstructions = complex_center_crop_to_smallest(input,reconstructions)
+        rec_loss = nn.functional.mse_loss(input, reconstructions)
+        elbo = (rec_loss + kl) / len(input) # we want to maximize the elbo -> so we minimize the negative of the elbo
+        loss = - elbo
+        self.log("val_loss", loss,  sync_dist=True, on_step=True, on_epoch=True, prog_bar=True)
+    
+    def test_step(self, batch, batch_idx):
+        input = batch.kspace.permute(0,3,1,2)
+        reconstructions, _, kl = self(input)
+        if input.shape[-1] != reconstructions.shape[-1]:
+            input, reconstructions = complex_center_crop_to_smallest(input,reconstructions)
+        rec_loss = nn.functional.mse_loss(input, reconstructions)
+        elbo = (rec_loss + kl) / len(input) # we want to maximize the elbo -> so we minimize the negative of the elbo
+        loss = - elbo
+        self.log("test_loss", loss,  sync_dist=True, on_step=True, on_epoch=True, prog_bar=True)
+      
 
     def configure_optimizers(self):
         lr = self.learning_rate
