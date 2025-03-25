@@ -160,6 +160,7 @@ MNIST/
 *.pkl
 outputs/
 *profiler_logs.txt
+kdiff/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
