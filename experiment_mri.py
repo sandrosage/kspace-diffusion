@@ -7,11 +7,13 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 from pl_modules import AutoencoderKL
-torch.set_float32_matmul_precision('high')
+from datetime import datetime
 
+torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
+    run_name = "First-Stage-AutoencoderKL_" + datetime.now() + "_ "  + datetime.now().strftime("%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
-    wandb_logger = WandbLogger(project="Kspace-Diffusion", name="First-Stage-AutoencoderKL", log_model=True)
+    wandb_logger = WandbLogger(project="Kspace-Diffusion", name=run_name, log_model=True)
     dd_config = {
       "double_z": True,
       "z_channels": 2,
