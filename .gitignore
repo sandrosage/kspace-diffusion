@@ -161,6 +161,8 @@ MNIST/
 outputs/
 *profiler_logs.txt
 kdiff/
+val/
+wandb/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

@@ -1,157 +1,120 @@
-"""
-Copyright (c) Facebook, Inc. and its affiliates.
-
-This source code is licensed under the MIT license found in the
-LICENSE file in the root directory of this source tree.
-"""
-
-from argparse import ArgumentParser
-
 import torch
-from torch.nn import functional as F
+from modules.autoencoders import Encoder, Decoder
+from modules.distributions import DiagonalGaussianDistribution
+from torch import nn
+from modules.transforms import complex_center_crop_to_smallest
+import fastmri
+from fastmri.data.transforms import center_crop_to_smallest
+from modules.losses import ELBOLoss
+from pl_modules.mri_module import MRIModule
 
-from fastmri.models import Unet
-from fastmri.pl_modules import MriModule
-from diffusers import AutoencoderKL
+class AutoencoderKL(MRIModule):
+    def __init__(self,
+        ddconfig,
+        lossconfig,
+        embed_dim,
+        ckpt_path=None,
+        ignore_keys=[],
+        image_key="image",
+        colorize_nlabels=None,
+        monitor=None,
+        lr=4.5e-6
+        ):
+        super().__init__()
+        self.learning_rate = lr
+        self.image_key = image_key
+        self.encoder = Encoder(**ddconfig)
+        self.decoder = Decoder(**ddconfig)
+        assert ddconfig["double_z"]
+        self.quant_conv = torch.nn.Conv2d(2*ddconfig["z_channels"], 2*embed_dim, 1)
+        self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
+        self.embed_dim = embed_dim
+        if monitor is not None:
+            self.monitor = monitor
+        self.ELBO = ELBOLoss()
 
 
-class AutoencoderModule(MriModule):
-    def __init__(
-        self,
-        in_chans: int =1,
-        out_chans: int =1,
-        lr: float =0.001,
-        lr_step_size: int =40,
-        lr_gamma: float =0.1,
-        weight_decay: float=0.0,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.save_hyperparameters()
+    def encode(self, x):
+        h = self.encoder(x)
+        moments = self.quant_conv(h)
+        posterior = DiagonalGaussianDistribution(moments)
+        return posterior
 
-        self.in_chans = in_chans
-        self.out_chans = out_chans
-        self.lr = lr
-        self.lr_step_size = lr_step_size
-        self.lr_gamma = lr_gamma
-        self.weight_decay = weight_decay
-
-        self.model = AutoencoderKL(
-            in_channels=self.in_chans,
-            out_channels=self.out_chans
-        )
+    def decode(self, z):
+        z = self.post_quant_conv(z)
+        dec = self.decoder(z)
+        return dec
 
     def forward(self, input, sample_posterior=True):
-        return self.model(input, sample_posterior)
+        posterior = self.encode(input)
+        if sample_posterior:
+            z = posterior.sample()
+        else:
+            z = posterior.mode()
+        dec = self.decode(z)
+        return dec, posterior
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        reconstructions, posterior = self(batch.masked_kspace)
-        if optimizer_idx == 0:
-            # train encoder+decoder+logvar
-            aeloss, log_dict_ae = self.loss(batch.kspace, reconstructions, posterior, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-            self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False)
-            return aeloss
+    def shared_step(self, batch):
+        input = batch.masked_kspace.permute(0,3,1,2)
+        reconstruction, posterior = self(input)
+        if input.shape[-1] != reconstruction.shape[-1]:
+            input, reconstruction = complex_center_crop_to_smallest(input,reconstruction)
+        rec_img = fastmri.complex_abs(fastmri.ifft2c(reconstruction.permute(0,2,3,1)))
+        target, rec_img = center_crop_to_smallest(batch.target, rec_img)
+        return input, posterior, reconstruction, target, rec_img
 
-        if optimizer_idx == 1:
-            # train the discriminator
-            discloss, log_dict_disc = self.loss(batch.kspace, reconstructions, posterior, optimizer_idx, self.global_step,
-                                                last_layer=self.get_last_layer(), split="train")
-            self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False)
-            return discloss
-        loss = F.l1_loss(output, batch.target)
+    def training_step(self, batch, batch_idx):
+        # 1: Get the output of the model
+        input, posterior, reconstruction, target, rec_img = self.shared_step(batch)
+        # 2: Compute the losses
+        rec_loss = nn.functional.mse_loss(input, reconstruction) # MSE loss between the kspaces
+        elbo_loss = self.ELBO(rec_loss, posterior.kl(), input) # ElBO for optimizing the VAE
+        ssim_loss = self.SSIM(rec_img, target, data_range=batch.max_value) # SSIM on the reconstructed image and target image
 
-        self.log("loss", loss.detach())
-
-        return loss
+        # 3: Encapsulate the metrics
+        metrics = {
+            "train/elbo_loss": elbo_loss,
+            "train/rec_loss": rec_loss,
+            "train/ssim_loss": ssim_loss
+        }
+        # 4: Log the metrics
+        self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
+        return elbo_loss
+        
 
     def validation_step(self, batch, batch_idx):
-        output = self(batch.image)
-        mean = batch.mean.unsqueeze(1).unsqueeze(2)
-        std = batch.std.unsqueeze(1).unsqueeze(2)
+        # 1: Get the output of the model
+        _, _, _, target, rec_img = self.shared_step(batch)
 
+        # 2: Return batch information to on_validation_batch_end
         return {
             "batch_idx": batch_idx,
             "fname": batch.fname,
             "slice_num": batch.slice_num,
             "max_value": batch.max_value,
-            "output": output * std + mean,
-            "target": batch.target * std + mean,
-            "val_loss": F.l1_loss(output, batch.target),
+            "target": target,
+            "rec_img": rec_img
         }
 
     def test_step(self, batch, batch_idx):
-        output = self.forward(batch.image)
-        mean = batch.mean.unsqueeze(1).unsqueeze(2)
-        std = batch.std.unsqueeze(1).unsqueeze(2)
+        # 1: Get the output of the model
+        _, _, _, target, rec_img = self.shared_step(batch)
 
+        # 2: Return batch information to on_validation_batch_end
         return {
+            "batch_idx": batch_idx,
             "fname": batch.fname,
-            "slice": batch.slice_num,
-            "output": (output * std + mean).cpu().numpy(),
+            "slice_num": batch.slice_num,
+            "max_value": batch.max_value,
+            "target": target,
+            "rec_img": rec_img
         }
+        
 
     def configure_optimizers(self):
-        optim = torch.optim.RMSprop(
-            self.parameters(),scriminator
-            discloss, log_di
-            lr=self.lr,
-            weight_decay=self.weight_decay,
-        )
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optim, self.lr_step_size, self.lr_gamma
-        )
-
-        return [optim], [scheduler]
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):  # pragma: no-cover
-        """
-        Define parameters that only apply to this model
-        """
-        parser = ArgumentParser(parents=[parent_parser], add_help=False)
-        parser = MriModule.add_model_specific_args(parser)
-
-        # network params
-        parser.add_argument(
-            "--in_chans", default=1, type=int, help="Number of U-Net input channels"
-        )
-        parser.add_argument(
-            "--out_chans", default=1, type=int, help="Number of U-Net output chanenls"
-        )
-        parser.add_argument(
-            "--chans", default=1, type=int, help="Number of top-level U-Net filters."
-        )
-        parser.add_argument(
-            "--num_pool_layers",
-            default=4,
-            type=int,
-            help="Number of U-Net pooling layers.",
-        )
-        parser.add_argument(
-            "--drop_prob", default=0.0, type=float, help="U-Net dropout probability"
-        )
-
-        # training params (opt)
-        parser.add_argument(
-            "--lr", default=0.001, type=float, help="RMSProp learning rate"
-        )
-        parser.add_argument(
-            "--lr_step_size",
-            default=40,
-            type=int,
-            help="Epoch at which to decrease step size",
-        )
-        parser.add_argument(
-            "--lr_gamma", default=0.1, type=float, help="Amount to decrease step size"
-        )
-        parser.add_argument(
-            "--weight_decay",
-            default=0.0,
-            type=float,
-            help="Strength of weight decay regularization",
-        )
-
-        return parser
+        opt = torch.optim.Adam(list(self.encoder.parameters())+
+                                  list(self.decoder.parameters())+
+                                  list(self.quant_conv.parameters())+
+                                  list(self.post_quant_conv.parameters()),
+                                  lr=self.learning_rate, betas=(0.5, 0.9))
+        return opt
