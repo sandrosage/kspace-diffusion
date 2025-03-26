@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from fastmri.losses import SSIMLoss
 from torchmetrics.image import PeakSignalNoiseRatio
 from matplotlib import colors
+import fastmri.data.transforms as T
 
 class MRIModule(pl.LightningModule):
     def __init__(self, num_log_images: int = 16):
@@ -33,7 +34,7 @@ class MRIModule(pl.LightningModule):
                 ]
             )
         if batch_idx in self.val_log_indices:
-            self.log_image(outputs["fname"], batch_idx, outputs["slice_num"], outputs["target"], outputs["rec_img"], "val")
+            self.log_image(outputs["fname"], batch_idx, outputs["slice_num"], outputs["target"].squeeze(0), outputs["rec_img"].squeeze(0), "val")
     
     def on_test_batch_end(self, outputs, batch, batch_idx, dataloader_idx = 0):
         ssim_loss = self.SSIM(outputs["target"], outputs["rec_img"], outputs["max_value"])
@@ -52,7 +53,42 @@ class MRIModule(pl.LightningModule):
                 ]
             )
         if batch_idx in self.test_log_indices:
-            self.log_image(outputs["fname"], batch_idx, outputs["slice_num"], outputs["target"], outputs["rec_img"], "test")
+            self.log_image(outputs["fname"], batch_idx, outputs["slice_num"], outputs["target"].squeeze(0), outputs["rec_img"].squeeze(0), "test")
+    
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+
+        if self.train_log_indices is None:
+            self.train_log_indices = list(
+                np.random.permutation(len(self.trainer.train_dataloaders))[
+                    : self.num_log_images
+                ]
+            )
+        if batch_idx in self.train_log_indices:
+            input = T.tensor_to_complex_np(outputs[1].cpu())
+            reconstruction = T.tensor_to_complex_np(outputs[2].cpu())
+            rec_img = outputs[3]
+
+            self.store_kspace(batch.fname, batch_idx, batch.slice_num, input, reconstruction, "train")
+            self.log_image(batch.fname, batch_idx, batch.slice_num, batch.target.squeeze(0), rec_img.squeeze(0), "train")
+
+    def store_kspace(self, fname, batch_idx, slice_num, input, reconstruction, flag):
+            # Create figure and axes
+            fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+            # Display images
+            axes[0].imshow(np.log(np.abs(input) + 1e-9))
+            axes[0].set_title("Kspace")
+
+            axes[1].imshow(np.log(np.abs(reconstruction) + 1e-9))
+            axes[1].set_title("Reconstruction")
+
+            # Show the figure
+            plt.tight_layout()
+            fig.savefig('images/{}_{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])), dpi=300)
+
+            plt.clf()
+            plt.cla()
+            plt.close()
 
     def log_image(self, fname, batch_idx, slice_num, target, rec_img, flag):
         target = target.cpu().numpy()
@@ -82,7 +118,7 @@ class MRIModule(pl.LightningModule):
             axes.spines['left'].set_visible(False)
         # remove the white space around the chart
         plt.tight_layout()
-        self.logger.experiment.log({'{}/images/{}_{}_{}_Grid.png'.format(flag, fname, batch_idx, slice_num) : wandb.Image(plt)})
+        self.logger.experiment.log({'images/{}_{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])) : wandb.Image(plt)})
         plt.clf()
         plt.cla()
         plt.close()
