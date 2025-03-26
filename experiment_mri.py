@@ -11,7 +11,7 @@ from datetime import datetime
 
 torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
-    run_name = "First-Stage-AutoencoderKL_" + datetime.now() + "_ "  + datetime.now().strftime("%H:%M:%S")
+    run_name = "First-Stage-AutoencoderKL_" + str(datetime.now())
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     wandb_logger = WandbLogger(project="Kspace-Diffusion", name=run_name, log_model=True)
     dd_config = {
