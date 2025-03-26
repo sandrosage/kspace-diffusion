@@ -79,7 +79,7 @@ class AutoencoderKL(MRIModule):
         }
         # 4: Log the metrics
         self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
-        return elbo_loss
+        return elbo_loss, input, reconstruction, rec_img
         
 
     def validation_step(self, batch, batch_idx):
