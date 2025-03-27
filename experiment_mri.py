@@ -6,7 +6,7 @@ from modules.transforms import KspaceLDMDataTransform
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
-from pl_modules import AutoencoderKL
+from pl_modules.kl_autoencoder import AutoencoderKL
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
 
@@ -14,7 +14,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
-    run_name = "First-Stage-AutoencoderKL_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    run_name = "Original-KL-Autoencoder_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     wandb_logger = WandbLogger(project="Kspace-Diffusion", name=run_name, log_model=True)
     dd_config = {
@@ -36,7 +36,7 @@ if __name__ == "__main__":
         mode="min",
         filename="autoencoder-kl-{epoch:02d}"
     )
-    trainer = pl.Trainer(max_epochs=150, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(devices=1, max_epochs=150, logger=wandb_logger, callbacks=[model_checkpoint])
     mask_type = "random"
     center_fractions = [0.08, 0.04]
     accelerations = [4, 8]
@@ -49,7 +49,7 @@ if __name__ == "__main__":
     test_transform = KspaceLDMDataTransform()
     # ptl data module - this handles data loaders
     data_module = FastMriDataModule(
-        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
+        data_path=Path("/vol/datasets/cil/2021_11_23_fastMRI_data/knee/unzipped"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
@@ -62,5 +62,5 @@ if __name__ == "__main__":
         distributed_sampler=False,
         use_dataset_cache_file=True
     )
-    trainer.fit(model,datamodule=data_module)
+    trainer.fit(model,train_dataloaders=data_module.train_dataloader())
     wandb.finish()

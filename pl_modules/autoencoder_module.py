@@ -67,9 +67,9 @@ class AutoencoderKL(MRIModule):
         # 1: Get the output of the model
         input, posterior, reconstruction, target, rec_img = self.shared_step(batch)
         # 2: Compute the losses
-        rec_loss = nn.functional.mse_loss(input, reconstruction) # MSE loss between the kspaces
+        rec_loss = nn.functional.mse_loss(target.contiguous(), rec_img.contiguous()) # MSE loss between the kspaces
         elbo_loss = self.ELBO(rec_loss, posterior.kl(), input) # ElBO for optimizing the VAE
-        ssim_loss = self.SSIM(rec_img, target, data_range=batch.max_value) # SSIM on the reconstructed image and target image
+        ssim_loss = self.SSIM(target.contiguous(), rec_img.contiguous(), data_range=batch.max_value) # SSIM on the reconstructed image and target image
 
         # 3: Encapsulate the metrics
         metrics = {
@@ -79,7 +79,12 @@ class AutoencoderKL(MRIModule):
         }
         # 4: Log the metrics
         self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
-        return elbo_loss, input, reconstruction, rec_img
+        return {
+            "loss": elbo_loss,
+            "input": input.permute(0,2,3,1).contiguous(), 
+            "reconstruction": reconstruction.permute(0,2,3,1).contiguous(),
+            "rec_img": rec_img
+        }
         
 
     def validation_step(self, batch, batch_idx):
