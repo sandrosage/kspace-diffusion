@@ -13,6 +13,7 @@ class MRIModule(pl.LightningModule):
         self.num_log_images = num_log_images
         self.test_log_indices = None
         self.val_log_indices = None
+        self.train_log_indices = None
 
         self.SSIM = SSIMLoss()
         self.PSNR = PeakSignalNoiseRatio()
@@ -59,17 +60,20 @@ class MRIModule(pl.LightningModule):
 
         if self.train_log_indices is None:
             self.train_log_indices = list(
-                np.random.permutation(len(self.trainer.train_dataloaders))[
-                    : self.num_log_images
+                np.random.permutation(len(self.trainer.train_dataloader))[
+                    : 128
                 ]
             )
+        self.train_log_indices.append(1)
+        
         if batch_idx in self.train_log_indices:
-            input = T.tensor_to_complex_np(outputs[1].cpu())
-            reconstruction = T.tensor_to_complex_np(outputs[2].cpu())
-            rec_img = outputs[3]
+            input = np.squeeze(T.tensor_to_complex_np(outputs["input"].cpu().detach()), axis=0)
+            reconstruction = np.squeeze(T.tensor_to_complex_np(outputs["reconstruction"].cpu().detach()), axis=0)
+            np.save(str(batch_idx) + ".npy", reconstruction)
+            rec_img = outputs["rec_img"].squeeze(0).detach()
 
             self.store_kspace(batch.fname, batch_idx, batch.slice_num, input, reconstruction, "train")
-            self.log_image(batch.fname, batch_idx, batch.slice_num, batch.target.squeeze(0), rec_img.squeeze(0), "train")
+            self.log_image(batch.fname, batch_idx, batch.slice_num, batch.target.squeeze(0), rec_img, "train")
 
     def store_kspace(self, fname, batch_idx, slice_num, input, reconstruction, flag):
             # Create figure and axes

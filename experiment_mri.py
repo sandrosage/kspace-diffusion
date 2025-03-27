@@ -36,7 +36,7 @@ if __name__ == "__main__":
         mode="min",
         filename="autoencoder-kl-{epoch:02d}"
     )
-    trainer = pl.Trainer(max_epochs=150, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(devices=1, max_epochs=150, logger=wandb_logger, callbacks=[model_checkpoint])
     mask_type = "random"
     center_fractions = [0.08, 0.04]
     accelerations = [4, 8]

@@ -79,7 +79,12 @@ class AutoencoderKL(MRIModule):
         }
         # 4: Log the metrics
         self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
-        return elbo_loss, input, reconstruction, rec_img
+        return {
+            "loss": elbo_loss,
+            "input": input.permute(0,2,3,1).contiguous(), 
+            "reconstruction": reconstruction.permute(0,2,3,1).contiguous(),
+            "rec_img": rec_img
+        }
         
 
     def validation_step(self, batch, batch_idx):

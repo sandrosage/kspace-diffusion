@@ -7,8 +7,8 @@ class ELBOLoss(nn.Module):
         super().__init__()
     
     def forward(self,rec_loss: torch.Tensor, kl_loss: torch.Tensor, input: torch.Tensor) -> torch.Tensor:
-        elbo = (-rec_loss + kl_loss) / len(input) # we want to maximize the elbo -> so we minimize the negative of the elbo
-        return - elbo
+        elbo = (rec_loss - kl_loss) / input.shape[0] # we want to maximize the elbo -> so we minimize the negative of the elbo
+        return elbo
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}"
