@@ -88,8 +88,8 @@ class MRIModule(pl.LightningModule):
 
             # Show the figure
             plt.tight_layout()
-            fig.savefig('images/{}_{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])), dpi=300)
-
+            # fig.savefig('images/{}_{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])), dpi=300)
+            self.logger.experiment.log({'kspaces/{}_{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])) : wandb.Image(plt)})
             plt.clf()
             plt.cla()
             plt.close()
