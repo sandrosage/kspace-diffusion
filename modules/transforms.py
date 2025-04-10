@@ -3,6 +3,50 @@ import torch
 from fastmri.data.subsample import MaskFunc
 import numpy as np
 from fastmri.data import transforms as T
+import fastmri
+
+def kspace_to_mri(kspace: torch.Tensor, crop_size: Tuple[int,int] = (320,320)):
+    slice_image = fastmri.ifft2c(kspace)
+    slice_image_abs = fastmri.complex_abs(slice_image) 
+    if crop_size is not None:
+        slice_image_abs = fastmri.data.transforms.center_crop(slice_image_abs, crop_size)
+    return slice_image_abs
+
+def min_max_normalize(x: torch.Tensor):
+    return (x-x.min())/(x.max() - x.min()), torch.stack([x.min(), x.max()], dim=0)
+
+def min_max_unnormalize(x: torch.Tensor, scale: torch.Tensor):
+    x_min = scale[0]
+    x_max = scale[1]
+    return x*(x_max - x_min) + x_min
+
+def log_kspace(kspace: torch.Tensor, normalize: bool = False, eps: float = 1e-9):
+    kspace_abs = fastmri.complex_abs(kspace)
+    log = torch.log(kspace_abs + eps)  # Apply log transform
+    if normalize:
+        return min_max_normalize(log)
+    return log, None
+
+def phase_kspace(kspace: torch.Tensor):
+    return torch.atan2(kspace[...,0], kspace[...,1])
+
+def kspace_to_euler(kspace: torch.Tensor):
+    log, _ = log_kspace(kspace)
+    phase = phase_kspace(kspace)
+    return torch.stack([log, phase], dim=0)
+
+def reconstruct_kspace(kspace: torch.Tensor, log_scale: torch.Tensor = None):
+    if len(kspace.shape) > 3:
+        kspace = kspace.squeeze(0)
+    log = kspace[0,...]
+    phase = kspace[1,...]
+    magnitude = torch.exp(log)
+    if log_scale is not None:
+        magnitude = min_max_unnormalize(magnitude,log_scale)
+    kspace_rec = magnitude * torch.exp(1j * phase)
+    real = kspace_rec.real
+    imag = kspace_rec.imag
+    return torch.stack([real, imag], dim=-1)
 
 def complex_center_crop_c_h_w(data: torch.Tensor, shape: Tuple[int, int]) -> torch.Tensor:
     """
@@ -88,6 +132,81 @@ class KspaceLDMWithMaskInfoSample(NamedTuple):
     target: torch.Tensor
     acceleration: torch.Tensor
     center_fraction: torch.Tensor
+
+class LogPhaseLDMDataTransform:
+    """
+    Data Transformer for training VarNet models.
+    """
+
+    def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
+        """
+        Args:
+            which_challenge: Challenge from ("singlecoil", "multicoil").
+            mask_func: Optional; A function that can create a mask of
+                appropriate shape.
+            use_seed: If true, this class computes a pseudo random number
+                generator seed from the filename. This ensures that the same
+                mask is used for all the slices of a given volume every time.
+        """
+
+        self.mask_func = mask_func
+        self.use_seed = use_seed
+    
+    def __call__(
+        self,
+        kspace: np.ndarray,
+        mask: np.ndarray,
+        target: Optional[np.ndarray],
+        attrs: Dict,
+        fname: str,
+        slice_num: int,
+    ) -> KspaceLDMSample:
+        """
+        Args:
+            kspace: Input k-space of shape (num_coils, rows, cols) for
+                multi-coil data.
+            mask: Mask from the test dataset.
+            target: Target image.
+            attrs: Acquisition related information stored in the HDF5 object.
+            fname: File name.
+            slice_num: Serial number of the slice.
+
+        Returns:
+            A VarNetSample with the masked k-space, sampling mask, target
+            image, the filename, the slice number, the maximum image value
+            (from target), the target crop size, and the number of low
+            frequency lines sampled.
+        """
+        if target is not None:
+            target_torch = T.to_tensor(target)
+            max_value = attrs["max"]
+        else:
+            target_torch = torch.tensor(0)
+            max_value = 0.0
+
+        kspace_torch = T.to_tensor(kspace)
+        seed = None if not self.use_seed else tuple(map(ord, fname))
+        acq_start = attrs["padding_left"]
+        acq_end = attrs["padding_right"]
+
+        crop_size = (attrs["recon_size"][0], attrs["recon_size"][1])
+
+        masked_kspace = kspace_torch
+        if self.mask_func is not None:
+            masked_kspace, mask_torch, num_low_frequencies = T.apply_mask(
+                kspace_torch, self.mask_func, seed=seed, padding=(acq_start, acq_end)
+            )
+        kspace_torch = T.complex_center_crop(kspace_torch, (320,320))
+        masked_kspace = kspace_to_euler(kspace_torch)
+        return KspaceLDMSample(
+            masked_kspace=masked_kspace,
+            kspace =kspace_torch,
+            target=target_torch,
+            fname=fname,
+            slice_num=slice_num,
+            max_value=max_value,
+            crop_size=crop_size
+        )
 
 class KspaceLDMDataTransform:
     """

@@ -71,9 +71,10 @@ class MRIModule(pl.LightningModule):
             reconstruction = np.squeeze(T.tensor_to_complex_np(outputs["reconstruction"].cpu().detach()), axis=0)
             np.save(str(batch_idx) + ".npy", reconstruction)
             rec_img = outputs["rec_img"].squeeze(0).detach()
+            target = outputs["target"].squeeze(0).detach()
 
             self.store_kspace(batch.fname, batch_idx, batch.slice_num, input, reconstruction, "train")
-            self.log_image(batch.fname, batch_idx, batch.slice_num, batch.target.squeeze(0), rec_img, "train")
+            self.log_image(batch.fname, batch_idx, batch.slice_num, target, rec_img, "train")
 
     def store_kspace(self, fname, batch_idx, slice_num, input, reconstruction, flag):
             # Create figure and axes
