@@ -7,6 +7,8 @@ from torchmetrics.image import PeakSignalNoiseRatio
 from matplotlib import colors
 import fastmri.data.transforms as T
 
+np.random.seed(11)
+
 class MRIModule(pl.LightningModule):
     def __init__(self, num_log_images: int = 16):
         super().__init__()
@@ -69,7 +71,7 @@ class MRIModule(pl.LightningModule):
         if batch_idx in self.train_log_indices:
             input = np.squeeze(T.tensor_to_complex_np(outputs["input"].cpu().detach()), axis=0)
             reconstruction = np.squeeze(T.tensor_to_complex_np(outputs["reconstruction"].cpu().detach()), axis=0)
-            np.save(str(batch_idx) + ".npy", reconstruction)
+            # np.save(str(batch_idx) + ".npy", reconstruction)
             rec_img = outputs["rec_img"].squeeze(0).detach()
             target = outputs["target"].squeeze(0).detach()
 
@@ -98,7 +100,7 @@ class MRIModule(pl.LightningModule):
     def log_image(self, fname, batch_idx, slice_num, target, rec_img, flag):
         target = target.cpu().numpy()
         rec_img = rec_img.cpu().numpy()
-        diff = np.abs(target - rec_img)
+        diff = (target - rec_img)
         fig, ax = plt.subplots(1,3,figsize=(18,5))
         fig.subplots_adjust(wspace=0.0)
         # orig
@@ -108,7 +110,7 @@ class MRIModule(pl.LightningModule):
         ax[1].imshow(rec_img,'gray')
         ax[1].set_title("Reconstructed")
         # difference
-        ax[2].imshow(diff,'inferno',norm=colors.Normalize(vmin=0, vmax=diff.max()+.01))
+        ax[2].imshow(diff,'inferno',norm=colors.Normalize(vmin=diff.min(), vmax=diff.max()))
         ax[2].set_title("Difference")
         
         # remove all the ticks (both axes), and tick labels

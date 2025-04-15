@@ -2,7 +2,7 @@ import torch
 from modules.autoencoders import Encoder, Decoder
 from modules.distributions import DiagonalGaussianDistribution
 from torch import nn
-from modules.transforms import complex_center_crop_to_smallest, reconstruct_kspace, kspace_to_mri
+from modules.transforms import complex_center_crop_to_smallest, reconstruct_kspace, kspace_to_mri, complex_center_crop_c_h_w
 import fastmri
 from fastmri.data.transforms import center_crop_to_smallest, complex_center_crop
 from modules.losses import ELBOLoss
@@ -302,7 +302,7 @@ class AutoencoderComplex(MRIModule):
         dec = self.imag_decoder(z)
         return dec
 
-    def forward(self, input, sample_posterior=True):
+    def forward(self, input, sample_posterior=False):
         real, imag = input[:,0:1,...], input[:,1:2,...]
         real_posterior = self.encode_real(real)
         imag_posterior = self.encode_imag(imag)
@@ -312,14 +312,14 @@ class AutoencoderComplex(MRIModule):
             imag_z = imag_posterior.sample()
         else:
             real_z = real_posterior.mode()
-            imag_z = imag_posterior()
+            imag_z = imag_posterior.mode()
         real_dec = self.decode_real(real_z)
         imag_dec = self.decode_imag(imag_z)
         return real_dec, imag_dec, real_posterior, imag_posterior
 
     def shared_step(self, batch):
         input = batch.masked_kspace.permute(0,3,1,2)
-        input = complex_center_crop(input, (320,320))
+        input = complex_center_crop_c_h_w(input, (320,320))
         real_dec, imag_dec, real_posterior, imag_posterior = self(input)
         output = torch.cat([real_dec, imag_dec], dim=1)
         if input.shape[-1] != output.shape[-1]:

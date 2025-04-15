@@ -3,69 +3,75 @@ from torch import nn
 from typing import List
 from modules.utils import kspace_to_image
 import torch.nn.functional as F
+from modules.transforms import kspace_to_mri
+
+def make_encoder(in_channels, hidden_dims):
+    layers = []
+    for i, h_dim in enumerate(hidden_dims):
+        layers.append(nn.Conv2d(in_channels, h_dim, kernel_size=3, stride=2, padding=1))
+        layers.append(nn.BatchNorm2d(h_dim))
+        layers.append(nn.LeakyReLU())
+        in_channels = h_dim  # update in_channels for next layer
+    return nn.Sequential(*layers)
+
+def make_decoder(hidden_dims, out_channels):
+    layers = []
+    reversed_dims = list(reversed(hidden_dims))
+
+    for i in range(len(reversed_dims) - 1):
+        print(reversed_dims[i], hidden_dims[i+1])
+        layers.append(nn.ConvTranspose2d(reversed_dims[i], reversed_dims[i + 1],
+                                         kernel_size=3, stride=2, padding=1, output_padding=1))
+        layers.append(nn.BatchNorm2d(reversed_dims[i + 1]))
+        layers.append(nn.LeakyReLU())
+
+    final_layers = [
+        nn.ConvTranspose2d(reversed_dims[-1], reversed_dims[-1],
+                           kernel_size=3, stride=2, padding=1, output_padding=1),
+        nn.BatchNorm2d(reversed_dims[-1]),
+        nn.LeakyReLU(),
+        nn.Conv2d(reversed_dims[-1], out_channels, kernel_size=3, padding=1),
+        nn.Tanh()
+    ]
+
+    return nn.Sequential(*(layers + final_layers))
 
 class VAE(nn.Module):
-    def __init__(self,config, in_channels: int,out_channels: int, latent_dim: int, hidden_dims: List[int] = None):
+    def __init__(self, in_channels: int, latent_dim: int, hidden_dims: List[int] = None):
         super(VAE, self).__init__()
 
         self.latent_dim = latent_dim
-        self.coils=in_channels
-        self.out_channels=out_channels
-        self.config= config
+        self.in_channels=in_channels
+        self.out_channels=in_channels
         if hidden_dims is None:
             hidden_dims = [32, 64, 128, 256, 512]
 
         # Build Encoder
         self.hidden_dims = hidden_dims
-        for i, h_dim in enumerate(hidden_dims):
-            self.add_module(f'encoder_{i}_0', nn.Conv3d(in_channels=in_channels, out_channels=h_dim,
-                                                        kernel_size=(3, 3, 3), stride=(1, 2, 2), padding=(1, 1, 1)))
-            self.add_module(f'encoder_{i}_1', nn.BatchNorm3d(h_dim))
-            self.add_module(f'encoder_{i}_2', nn.LeakyReLU())
-            in_channels = h_dim  # Update in_channels for the next layer
+        print(self.hidden_dims)
+        self.encoder = make_encoder(self.in_channels, self.hidden_dims)
 
-
-        # conv_output_shape = self._calculate_conv_output_shape(input_shape=(8, 2, self.config.training.out_coils, 320, 320))
-        conv_output_shape = self._calculate_conv_output_shape(input_shape=(1, 2, 320, 320))
+        conv_output_shape = self._calculate_conv_output_shape(input_shape=(1, self.in_channels, 320, 320))
 
         # Latent space representation
         self.W_mu = nn.Linear(conv_output_shape, latent_dim)
         self.W_var = nn.Linear(conv_output_shape, latent_dim)
 
         # Build Decoder
-        hidden_dims.reverse()
         self.decoder_input = nn.Linear(latent_dim, conv_output_shape)
 
-        for i in range(len(hidden_dims) - 1):
-            self.add_module(f'decoder_{i}_0', nn.ConvTranspose3d(hidden_dims[i], hidden_dims[i + 1],
-                                                                 kernel_size=(3, 3, 3), stride=(1, 2, 2),
-                                                                 padding=(1, 1, 1), output_padding=(0, 1, 1)))
-            self.add_module(f'decoder_{i}_1', nn.BatchNorm3d(hidden_dims[i + 1]))
-            self.add_module(f'decoder_{i}_2', nn.LeakyReLU())
-
-        self.final_layer = nn.Sequential(
-            nn.ConvTranspose3d(hidden_dims[-1], hidden_dims[-1],
-                               kernel_size=(3, 3, 3), stride=(1, 2, 2),
-                               padding=(1, 1, 1), output_padding=(0, 1, 1)),
-            nn.BatchNorm3d(hidden_dims[-1]),
-            nn.LeakyReLU(),
-            nn.Conv3d(hidden_dims[-1], out_channels=self.out_channels,
-                      kernel_size=(3, 3, 3), padding=1),
-            nn.Tanh())
+        self.decoder = make_decoder(hidden_dims, self.out_channels)
 
     def _calculate_conv_output_shape(self, input_shape):
         """Helper function to calculate the output shape after all convolutional layers"""
-        batch_size, channels, coils, height, width = input_shape
+        batch_size = input_shape[0]
         x = torch.rand(input_shape)
-        for i in range(len(self.hidden_dims)):
-            x = getattr(self, f'encoder_{i}_0')(x)
+        x = self.encoder(x)
         flattened_size = x.numel() // batch_size  # Flattened size for a single batch element
         return flattened_size
+    
     def encode(self, input: torch.Tensor) -> List[torch.Tensor]:
-        for i in range(len(self.hidden_dims)):
-            input = getattr(self, f'encoder_{i}_0')(input)
-            input = getattr(self, f'encoder_{i}_1')(input)
-            input = getattr(self, f'encoder_{i}_2')(input)
+        input = self.encoder(input)
         result = torch.flatten(input, start_dim=1)
         mu = self.W_mu(result)
         log_var = self.W_var(result)
@@ -73,12 +79,8 @@ class VAE(nn.Module):
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         result = self.decoder_input(z)
-        result = result.view(-1,  self.hidden_dims[0], 10, 10)  # Adjust based on the encoder's final output shape
-        for i in range(len(self.hidden_dims) - 1):
-            result = getattr(self, f'decoder_{i}_0')(result)
-            result = getattr(self, f'decoder_{i}_1')(result)
-            result = getattr(self, f'decoder_{i}_2')(result)
-        result = self.final_layer(result)
+        result = result.view(-1,  self.hidden_dims[-1], 10, 10)  # Adjust based on the encoder's final output shape
+        result = self.decoder(result)
         return result
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
@@ -99,8 +101,8 @@ class VAE(nn.Module):
         log_var = args[3]
         # print("recon",torch.min(recons), torch.max(recons))
         # print("input", torch.min(input), torch.max(input))
-        predicted_image = kspace_to_image(recons)
-        true_image = kspace_to_image(input)
+        predicted_image = kspace_to_mri(recons)
+        true_image = kspace_to_mri(input)
 
 
 
@@ -128,10 +130,9 @@ class VAE(nn.Module):
 
 
 class MultiChannelVAE(nn.Module):
-    def __init__(self, n_channels: int, in_channels:int,out_coils:int,vae_class: nn.Module, latent_dim: int, **vae_kwargs):
+    def __init__(self, n_channels: int, in_channels:int,vae_class: nn.Module, latent_dim: int, **vae_kwargs):
         super(MultiChannelVAE, self).__init__()
         self.n_channels = n_channels
-        self.out_coils = out_coils
         self.latent_dim = latent_dim
         self.vae_class = vae_class
         self.vae_kwargs = vae_kwargs
@@ -139,7 +140,6 @@ class MultiChannelVAE(nn.Module):
         for i in range(n_channels):
             vae = self.vae_class(
                 in_channels=in_channels,  # Each channel has 15 feature maps
-                out_coils=out_coils,
                 latent_dim=latent_dim,
                 **vae_kwargs
             )
@@ -159,9 +159,12 @@ class MultiChannelVAE(nn.Module):
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         outputs = []
         for i in range(self.n_channels):
+            print(i)
             vae = getattr(self, f'vaes_{i}')
-            outputs.append(vae(x[:, i]))
-        return torch.stack(outputs, dim=1)
+            vae_output = vae(x[:, i:i+1, ...])[0]
+            print("VAE output: ", vae_output.shape)
+            outputs.append(vae_output)
+        return torch.cat(outputs, dim=1)
 
 
 
