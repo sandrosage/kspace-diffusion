@@ -11,13 +11,13 @@ from pl_modules.rupali_autoencoder import RupaliAutoencoderModule
 from pl_modules.simple_module import SimpleAutoencoder
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pl_modules.simple_autoencoder import SimpleAutoencoder
+from pl_modules.unet_module import UNet
 # export https_proxy=http://proxy:80
 
 torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
     print("Hello")
-    run_name = "Simple-Euler-OnlyKspace-Loss_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    run_name = "UNet_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     wandb_logger = WandbLogger(project="Kspace-Diffusion", name=run_name, log_model=True)
     dd_config = {
@@ -34,7 +34,8 @@ if __name__ == "__main__":
     }
     # model = AutoencoderComplex(ddconfig=dd_config, lossconfig=None, embed_dim=1)
     # model = RupaliAutoencoderModule()
-    model = SimpleAutoencoder()
+    # model = SimpleAutoencoder()
+    model = UNet()
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
@@ -50,10 +51,10 @@ if __name__ == "__main__":
         mask_type, center_fractions, accelerations
     )
     # use random masks for train transform, fixed masks for val transform
-    train_transform = val_transform = test_transform = LogPhaseLDMDataTransform()
+    train_transform = val_transform = test_transform = KspaceLDMDataTransform()
     # ptl data module - this handles data loaders
     data_module = FastMriDataModule(
-        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
+        data_path=Path("/vol/datasets/cil/2021_11_23_fastMRI_data/knee/unzipped"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
