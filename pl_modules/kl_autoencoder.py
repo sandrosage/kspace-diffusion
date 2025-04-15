@@ -8,6 +8,7 @@ from modules.transforms import complex_center_crop_to_smallest
 from pl_modules.mri_module import MRIModule
 import fastmri
 from fastmri.data.transforms import center_crop_to_smallest
+from fastmri.losses import SSIMLoss
 
 class AutoencoderKL(MRIModule):
     def __init__(self,
@@ -27,7 +28,8 @@ class AutoencoderKL(MRIModule):
         self.image_key = image_key
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
-        self.loss = LPIPSWithDiscriminator(disc_start=50001, kl_weight=0.000001, disc_weight=0.5, disc_in_channels=2, perceptual_weight=0)
+        self.loss = LPIPSWithDiscriminator(disc_start=10001, kl_weight=0.000001, disc_weight=0.5, disc_in_channels=1, perceptual_weight=0)
+        self.SSIM = SSIMLoss()
         assert ddconfig["double_z"]
         self.quant_conv = torch.nn.Conv2d(2*ddconfig["z_channels"], 2*embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
@@ -74,31 +76,36 @@ class AutoencoderKL(MRIModule):
 
     def training_step(self, batch, batch_idx):
         opt_0, opt_1 = self.optimizers()
-        inputs = batch.masked_kspace.permute(0, 3, 1, 2)
+        inputs = batch.masked_kspace.permute(0, 3, 1, 2).contiguous()
         reconstructions, posterior = self(inputs)
         if inputs.shape[-1] != reconstructions.shape[-1]:
             inputs, reconstructions = complex_center_crop_to_smallest(inputs,reconstructions)
+        rec_img = fastmri.complex_abs(fastmri.ifft2c(reconstructions.permute(0,2,3,1).contiguous()))
+        target = fastmri.complex_abs(fastmri.ifft2c(inputs.permute(0,2,3,1).contiguous()))
+        
 
         # train encoder+decoder+logvar
-        aeloss, log_dict_ae = self.loss(inputs, reconstructions, posterior, 0, self.global_step,
+        aeloss, log_dict_ae = self.loss(target.unsqueeze(0), rec_img.unsqueeze(0), posterior, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
         
         opt_0.zero_grad()
-        self.manual_backward(aeloss)
+        self.manual_backward(aeloss + 100*self.SSIM(target, rec_img, batch.max_value))
         opt_0.step()
 
-        inputs = batch.masked_kspace.permute(0, 3, 1, 2)
+        inputs = batch.masked_kspace.permute(0, 3, 1, 2).contiguous()
         reconstructions, posterior = self(inputs)
         if inputs.shape[-1] != reconstructions.shape[-1]:
             inputs, reconstructions = complex_center_crop_to_smallest(inputs,reconstructions)
+        rec_img = fastmri.complex_abs(fastmri.ifft2c(reconstructions.permute(0,2,3,1).contiguous()))
+        target = fastmri.complex_abs(fastmri.ifft2c(inputs.permute(0,2,3,1).contiguous()))
 
         # train the discriminator
-        discloss, log_dict_disc = self.loss(inputs, reconstructions, posterior, 1, self.global_step,
+        discloss, log_dict_disc = self.loss(target.unsqueeze(0), rec_img.unsqueeze(0), posterior, 1, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
 
         
         opt_1.zero_grad()
-        self.manual_backward(discloss)
+        self.manual_backward(discloss+ 100*self.SSIM(target, rec_img, batch.max_value))
         opt_1.step()
 
         self.log("aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=inputs.shape[0])
@@ -107,13 +114,12 @@ class AutoencoderKL(MRIModule):
         self.log("discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=inputs.shape[0])
         self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False, batch_size=inputs.shape[0])
 
-        rec_img = fastmri.complex_abs(fastmri.ifft2c(reconstructions.permute(0,2,3,1)))
-        _, rec_img = center_crop_to_smallest(batch.target, rec_img)
 
         return {
             "input": inputs.permute(0,2,3,1).contiguous(), 
             "reconstruction": reconstructions.permute(0,2,3,1).contiguous(),
-            "rec_img": rec_img
+            "rec_img": rec_img,
+            "target": target
         }
 
 

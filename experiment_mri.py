@@ -2,11 +2,13 @@ from fastmri.pl_modules import FastMriDataModule
 import torch
 from fastmri.data.subsample import create_mask_for_mask_type
 from pathlib import Path
-from modules.transforms import KspaceLDMDataTransform
+from modules.transforms import KspaceLDMDataTransform, LogPhaseLDMDataTransform
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
-from pl_modules.kl_autoencoder import AutoencoderKL
+from pl_modules.autoencoder_module import AutoencoderKL, AutoencoderComplex
+from pl_modules.rupali_autoencoder import RupaliAutoencoderModule
+from pl_modules.simple_module import SimpleAutoencoder
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pl_modules.simple_autoencoder import SimpleAutoencoder
@@ -14,23 +16,26 @@ from pl_modules.simple_autoencoder import SimpleAutoencoder
 
 torch.set_float32_matmul_precision('high')
 if __name__ == "__main__":
-    run_name = "Original-KL-Autoencoder_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    print("Hello")
+    run_name = "Simple-Euler-OnlyKspace-Loss_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     wandb_logger = WandbLogger(project="Kspace-Diffusion", name=run_name, log_model=True)
     dd_config = {
       "double_z": True,
-      "z_channels": 2,
+      "z_channels": 1,
       "resolution": 256,
-      "in_channels": 2,
-      "out_ch": 2,
+      "in_channels": 1,
+      "out_ch": 1,
       "ch": 128,
       "ch_mult": [1,2,4],  # num_down = len(ch_mult)-1
-      "num_res_blocks": 2,
+      "num_res_blocks": 1,
       "attn_resolutions": [],
       "dropout": 0.0
     }
+    # model = AutoencoderComplex(ddconfig=dd_config, lossconfig=None, embed_dim=1)
+    # model = RupaliAutoencoderModule()
     model = SimpleAutoencoder()
-    # model = AutoencoderKL(ddconfig=dd_config, lossconfig=None, embed_dim=2)
+
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
         monitor="val/ssim_loss_epoch",
@@ -45,12 +50,10 @@ if __name__ == "__main__":
         mask_type, center_fractions, accelerations
     )
     # use random masks for train transform, fixed masks for val transform
-    train_transform = KspaceLDMDataTransform()
-    val_transform = KspaceLDMDataTransform()
-    test_transform = KspaceLDMDataTransform()
+    train_transform = val_transform = test_transform = LogPhaseLDMDataTransform()
     # ptl data module - this handles data loaders
     data_module = FastMriDataModule(
-        data_path=Path("/vol/datasets/cil/2021_11_23_fastMRI_data/knee/unzipped"),
+        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
