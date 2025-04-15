@@ -437,3 +437,57 @@ class Decoder(nn.Module):
         if self.tanh_out:
             h = torch.tanh(h)
         return h
+    
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class KSpaceAutoencoder(nn.Module):
+    def __init__(self, latent_dim=128):
+        super(KSpaceAutoencoder, self).__init__()
+
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(2, 32, kernel_size=3, stride=2, padding=1),  # (batch, 32, H/2, W/2)
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),  # (batch, 64, H/4, W/4)
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),  # (batch, 128, H/8, W/8)
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+
+        # Latent representation
+        self.fc_enc = nn.Linear(128 * 16 * 16, latent_dim)  # Adjust for input size
+        self.fc_dec = nn.Linear(latent_dim, 128 * 16 * 16)
+
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 64, H/4, W/4)
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 32, H/2, W/2)
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(32, 2, kernel_size=3, stride=2, padding=1, output_padding=1),  # (batch, 2, H, W)
+            nn.Tanh()  # Keep output in [-1, 1] range
+        )
+
+    def forward(self, x):
+        # Encode
+        x = self.encoder(x)
+        x = x.view(x.size(0), -1)  # Flatten for FC layer
+        x = self.fc_enc(x)
+
+        # Decode
+        x = self.fc_dec(x)
+        x = x.view(x.size(0), 128, 16, 16)  # Reshape back
+        x = self.decoder(x)
+        
+        return x

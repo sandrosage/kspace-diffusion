@@ -2,7 +2,7 @@ import torch
 from modules.autoencoders import Encoder, Decoder
 from modules.distributions import DiagonalGaussianDistribution
 from torch import nn
-from modules.transforms import complex_center_crop_to_smallest
+from modules.transforms import complex_center_crop_to_smallest, log_normalize_kspace
 import fastmri
 from fastmri.data.transforms import center_crop_to_smallest
 from modules.losses import ELBOLoss
@@ -56,6 +56,8 @@ class AutoencoderKL(MRIModule):
 
     def shared_step(self, batch):
         input = batch.masked_kspace.permute(0,3,1,2)
+        input = log_normalize_kspace(input)
+        
         reconstruction, posterior = self(input)
         if input.shape[-1] != reconstruction.shape[-1]:
             input, reconstruction = complex_center_crop_to_smallest(input,reconstruction)

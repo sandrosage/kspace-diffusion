@@ -9,7 +9,7 @@ import wandb
 from pl_modules.kl_autoencoder import AutoencoderKL
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
-
+from pl_modules.simple_autoencoder import SimpleAutoencoder
 # export https_proxy=http://proxy:80
 
 torch.set_float32_matmul_precision('high')
@@ -29,7 +29,8 @@ if __name__ == "__main__":
       "attn_resolutions": [],
       "dropout": 0.0
     }
-    model = AutoencoderKL(ddconfig=dd_config, lossconfig=None, embed_dim=2)
+    model = SimpleAutoencoder()
+    # model = AutoencoderKL(ddconfig=dd_config, lossconfig=None, embed_dim=2)
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
         monitor="val/ssim_loss_epoch",
