@@ -291,7 +291,32 @@ class KspaceLDMDataTransform:
             crop_size=crop_size
         )
 
-class Kspace3DLDMDataTransform:
+class KspaceUNetSample(NamedTuple):
+    """
+    A sample of masked k-space for variational network reconstruction.
+
+    Args:
+        masked_kspace: k-space after applying sampling mask.
+        mask: The applied sampling mask.
+        num_low_frequencies: The number of samples for the densely-sampled
+            center.
+        target: The target image (if applicable).
+        fname: File name.
+        slice_num: The slice index.
+        max_value: Maximum image value.
+        crop_size: The size to crop the final image.
+    """
+    full_kspace: torch.Tensor
+    masked_kspace: torch.Tensor
+    mask: torch.Tensor
+    num_low_frequencies: Optional[int]
+    target: torch.Tensor
+    fname: str
+    slice_num: int
+    max_value: float
+    crop_size: Tuple[int, int]
+
+class KspaceUNetDataTransform:
     """
     Data Transformer for training VarNet models.
     """
@@ -299,17 +324,15 @@ class Kspace3DLDMDataTransform:
     def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
         """
         Args:
-            which_challenge: Challenge from ("singlecoil", "multicoil").
             mask_func: Optional; A function that can create a mask of
-                appropriate shape.
-            use_seed: If true, this class computes a pseudo random number
+                appropriate shape. Defaults to None.
+            use_seed: If True, this class computes a pseudo random number
                 generator seed from the filename. This ensures that the same
                 mask is used for all the slices of a given volume every time.
         """
-
         self.mask_func = mask_func
         self.use_seed = use_seed
-    
+
     def __call__(
         self,
         kspace: np.ndarray,
@@ -318,7 +341,7 @@ class Kspace3DLDMDataTransform:
         attrs: Dict,
         fname: str,
         slice_num: int,
-    ) -> KspaceLDMSample:
+    ) -> KspaceUNetSample:
         """
         Args:
             kspace: Input k-space of shape (num_coils, rows, cols) for
@@ -349,18 +372,44 @@ class Kspace3DLDMDataTransform:
 
         crop_size = (attrs["recon_size"][0], attrs["recon_size"][1])
 
-        masked_kspace = kspace_torch
         if self.mask_func is not None:
             masked_kspace, mask_torch, num_low_frequencies = T.apply_mask(
                 kspace_torch, self.mask_func, seed=seed, padding=(acq_start, acq_end)
             )
-        return KspaceLDMSample(
-            masked_kspace=masked_kspace,
-            kspace =torch.cat([kspace_torch, torch.zeros(kspace_torch.shape[0], kspace_torch.shape[1], 1)], dim=2),
-            target=target_torch,
-            fname=fname,
-            slice_num=slice_num,
-            max_value=max_value,
-            crop_size=crop_size
-        )
-    
+
+            sample = KspaceUNetSample(
+                full_kspace=kspace_torch,
+                masked_kspace=masked_kspace,
+                mask=mask_torch.to(torch.bool),
+                num_low_frequencies=num_low_frequencies,
+                target=target_torch,
+                fname=fname,
+                slice_num=slice_num,
+                max_value=max_value,
+                crop_size=crop_size,
+            )
+        else:
+            masked_kspace = kspace_torch
+            shape = np.array(kspace_torch.shape)
+            num_cols = shape[-2]
+            shape[:-3] = 1
+            mask_shape = [1] * len(shape)
+            mask_shape[-2] = num_cols
+            mask_torch = torch.from_numpy(mask.reshape(*mask_shape).astype(np.float32))
+            mask_torch = mask_torch.reshape(*mask_shape)
+            mask_torch[:, :, :acq_start] = 0
+            mask_torch[:, :, acq_end:] = 0
+
+            sample = KspaceUNetSample(
+                full_kspace=kspace_torch,
+                masked_kspace=masked_kspace,
+                mask=mask_torch.to(torch.bool),
+                num_low_frequencies=0,
+                target=target_torch,
+                fname=fname,
+                slice_num=slice_num,
+                max_value=max_value,
+                crop_size=crop_size,
+            )
+
+        return sample

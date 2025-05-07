@@ -24,12 +24,27 @@ class RupaliAutoencoderModule(MRIModule):
             lr=1e-3
             )
     
+    def apply_norm(self, x: torch.Tensor, eps=1e-5):
+        x_min = x.amin(dim=(2, 3), keepdim=True)
+        x_max = x.amax(dim=(2, 3), keepdim=True)
+        x_normalized = (x - x_min) / (x_max - x_min)
+        # return torch.log(x_normalized + eps), (x_min, x_max)
+        return x_normalized, (x_min, x_max)
+
+    def reverse_norm(self, x: torch.Tensor, scale, eps=1e-5):
+        # x_normalized = torch.exp(x) - eps
+        x_normalized = x
+        return x_normalized * (scale[1] - scale[0]) + scale[0]
+    
     def training_step(self, batch, batch_idx):
         kspace = batch.masked_kspace.permute(0,3,1,2).contiguous()
         kspace = complex_center_crop_c_h_w(kspace, (320,320))
+        kspace,scale = self.apply_norm(kspace)
         real, imag = kspace[:,0:1,...], kspace[:,1:2,...]
         real_output, imag_output = self(real, imag)
         kspace_output = torch.cat([real_output, imag_output], dim=1)
+        kspace_output = self.reverse_norm(kspace_output, scale)
+        kspace = self.reverse_norm(kspace, scale)
         real_loss = self.criterion(real, real_output)
         imag_loss = self.criterion(imag, imag_output)
         kspace_loss = self.criterion(kspace, kspace_output)

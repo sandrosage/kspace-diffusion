@@ -1,140 +1,119 @@
-from diffusers import UNet2DModel
 from pl_modules.mri_module import MRIModule
 from torch import optim, nn
 from modules.transforms import kspace_to_mri,complex_center_crop_c_h_w
 import torch
-import complexPyTorch.complexLayers
-
+import fastmri.data.transforms as fT
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class DoubleConv(nn.Module):
-    """(convolution => [BN] => ReLU) * 2"""
-
-    def __init__(self, in_channels, out_channels, mid_channels=None):
-        super().__init__()
-        if not mid_channels:
-            mid_channels = out_channels
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
-
-
-class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConv(in_channels, out_channels)
-        )
-
-    def forward(self, x):
-        return self.maxpool_conv(x)
-
-
-class Up(nn.Module):
-    """Upscaling then double conv"""
-
-    def __init__(self, in_channels, out_channels, bilinear=True):
-        super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
-        if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-            self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
-        else:
-            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
-            self.conv = DoubleConv(in_channels, out_channels)
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
-
-
-class OutConv(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(OutConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class UNetSimple(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=False):
-        super(UNet, self).__init__()
-        self.n_channels = n_channels
-        self.n_classes = n_classes
-        self.bilinear = bilinear
-
-        self.inc = DoubleConv(n_channels, 64)
-        self.down1 = Down(64, 128)
-        self.down2 = Down(128, 256)
-        self.down3 = Down(256, 512)
-        factor = 2 if bilinear else 1
-        self.down4 = Down(512, 1024 // factor)
-        self.up1 = Up(1024, 512 // factor, bilinear)
-        self.up2 = Up(512, 256 // factor, bilinear)
-        self.up3 = Up(256, 128 // factor, bilinear)
-        self.up4 = Up(128, 64, bilinear)
-        self.outc = OutConv(64, n_classes)
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
-        return logits
+import torch
+from torch import nn
+from torch.nn import functional as F
+import time
+from modules.unet import NormUnet, Unet_FastMRI 
+from modules.complex_unet import Complex_FastMRI, ComplexUNet
+from typing import Tuple
+import fastmri.data.transforms as fT
 
 class UNet(MRIModule):
     def __init__(self):
         super().__init__()
-        self.model = UNet2DModel(in_channels=2, out_channels=2, block_out_channels=(64, 128, 256, 512))
-        # self.criterion = nn.MSELoss()
+        # self.model = UNet2DModel(in_channels=2, out_channels=2, block_out_channels=(64, 128, 256, 512))
+        self.model = Unet_FastMRI(2,2, 128, 4)
         self.criterion = nn.L1Loss()
 
     def forward(self, x):
-        return self.model.forward(x, timestep=torch.tensor(0)).sample
+        # return self.model.forward(x, timestep=torch.tensor(0)).sample
+        output = self.model.forward(x)
+        return output
+
+    def configure_optimizers(self):
+        return optim.Adam(self.model.parameters(), lr=1e-4)
+    
+    def norm(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # group norm
+        b, c, h, w = x.shape
+        x = x.view(b, 2, c // 2 * h * w)
+
+        mean = x.mean(dim=2).view(b, 2, 1, 1)
+        std = x.std(dim=2).view(b, 2, 1, 1)
+
+        x = x.view(b, c, h, w)
+
+        return (x - mean) / std, mean, std
+
+    def unnorm(self, x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+        return x * std + mean
+        
+    def training_step(self, batch, batch_idx):
+        input =  fT.complex_center_crop(batch.kspace, (320,320))
+        input = input.permute(0,3,1,2).contiguous()
+        # input, mean, std = self.norm(input)
+        output = self(input)
+        loss = self.criterion(input, output)
+        # input = self.unnorm(input, mean, std)
+        # output = self.unnorm(output, mean, std)
+        input = input.permute(0,2,3,1).contiguous()
+        output = output.permute(0,2,3,1).contiguous()
+        rec_img = kspace_to_mri(output)
+        target = kspace_to_mri(input)
+        mri_loss = self.criterion(target, rec_img)
+        self.log("mri_loss", mri_loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
+        self.log("kspace_loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
+        self.log("total_loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
+
+        return {
+            "loss": mri_loss,
+            "input": input, 
+            "reconstruction": output,
+            "rec_img": rec_img,
+            "target": target
+
+        }
+    
+class ComplexUNetModule(MRIModule):
+    def __init__(self):
+        super().__init__()
+        # self.model = UNet2DModel(in_channels=2, out_channels=2, block_out_channels=(64, 128, 256, 512))
+        self.model = Complex_FastMRI(1, 1)
+        # self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
+
+    def norm(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # group norm
+        b, c, h, w = x.shape
+        x = x.view(b, 2, c // 2 * h * w)
+
+        mean = x.mean(dim=2).view(b, 2, 1, 1)
+        std = x.std(dim=2).view(b, 2, 1, 1)
+
+        x = x.view(b, c, h, w)
+
+        return (x - mean) / std, mean, std
+
+    def unnorm(self, x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+        return x * std + mean
+
+    def forward(self, x):
+        # return self.model.forward(x, timestep=torch.tensor(0)).sample
+        return self.model.forward(x)
 
     def configure_optimizers(self):
         return optim.Adam(self.model.parameters(), lr=1e-4)
     
     def training_step(self, batch, batch_idx):
-        input = batch.kspace.permute(0,3,1,2)
-        input = complex_center_crop_c_h_w(input, (320,320))
-        output = self(input)
-        loss = self.criterion(input, output)
-        input = input.permute(0,2,3,1).contiguous()
-        output = output.permute(0,2,3,1).contiguous()
+        input = batch.kspace
+        input = fT.complex_center_crop(input, (320,320))
+        input, std, mean = self.norm(input)
+        input_complex = torch.view_as_complex(input).unsqueeze(0)
+        output_complex = self(input_complex)
+        loss = self.criterion(input_complex, output_complex)
+        output = torch.view_as_real(output_complex.squeeze(0))
+        output = self.unnorm(output, mean, std)
         img = kspace_to_mri(input)
         rec_img = kspace_to_mri(output)
+        mri_loss = self.criterion(img, rec_img)
+        self.log("mri_loss", mri_loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
         self.log("loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
         return {
             "loss": loss,
@@ -142,5 +121,71 @@ class UNet(MRIModule):
             "reconstruction": output,
             "rec_img": rec_img,
             "target": img
+
+        }
+
+
+class ImageUNet(MRIModule):
+    def __init__(self, num_log_images = 16):
+        super().__init__(num_log_images)
+        self.model = Unet_FastMRI(1, 1)
+        self.criterion = nn.L1Loss()
+
+    def forward(self, x: torch.Tensor):
+        start = time.time()
+        output = self.model(x.unsqueeze(1)).squeeze(1)
+        end = time.time()
+        return output, end-start
+    def training_step(self, batch, batch_idx):
+        x_hat, t = self(batch.image)
+        loss = self.criterion(x_hat, batch.target)
+        self.log("l1_loss", loss, on_epoch=True, on_step=True, sync_dist=True, batch_size=1)
+        self.log("time", round(t,5), on_epoch=True, on_step=True, sync_dist=True, batch_size=1)
+        return {
+            "loss": loss,
+            "input": torch.zeros(1,320, 320, 2), 
+            "reconstruction": torch.zeros(1,320, 320, 2),
+            "rec_img": x_hat,
+            "target": batch.target
+
+        }
+    
+    def configure_optimizers(self):
+        return optim.Adam(self.model.parameters(), lr=1e-4)
+
+
+    
+class NormUnetModule(MRIModule):
+    def __init__(self, num_log_images = 16):
+        super().__init__(num_log_images)
+        self.model = NormUnet(chans=2,num_pools=4)
+        self.criterion = nn.L1Loss()
+
+    def forward(self, x):
+            # return self.model.forward(x, timestep=torch.tensor(0)).sample
+            output = self.model.forward(x)
+            return output
+
+    def configure_optimizers(self):
+        return optim.Adam(self.model.parameters(), lr=1e-4)
+        
+    def training_step(self, batch, batch_idx):
+        input = fT.complex_center_crop(batch.kspace, (320, 320))
+        output = self(input)
+        loss = self.criterion(input, output)
+        rec_img = kspace_to_mri(output)
+        target = kspace_to_mri(input)
+        # target, rec_img = fT.center_crop_to_smallest(batch.target, rec_img)
+        mri_loss = self.criterion(target, rec_img)
+        self.log("mri_loss", mri_loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=False, batch_size=batch.kspace.shape[0])
+        self.log("kspace_loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=False, batch_size=batch.kspace.shape[0])
+        self.log("total_loss", loss + mri_loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True, batch_size=batch.kspace.shape[0])
+
+        return {
+            "loss": loss,
+            "input": input, 
+            "reconstruction": output,
+            "rec_img": rec_img,
+            "target": target
 
         }
