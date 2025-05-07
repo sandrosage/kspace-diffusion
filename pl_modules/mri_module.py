@@ -6,8 +6,9 @@ from fastmri.losses import SSIMLoss
 from torchmetrics.image import PeakSignalNoiseRatio
 from matplotlib import colors
 import fastmri.data.transforms as T
+from modules.transforms import KspaceUNetSample
 
-np.random.seed(11)
+np.random.seed(111)
 
 class MRIModule(pl.LightningModule):
     def __init__(self, num_log_images: int = 16):
@@ -129,3 +130,89 @@ class MRIModule(pl.LightningModule):
         plt.clf()
         plt.cla()
         plt.close()
+
+class NewMRIModule(pl.LightningModule):
+    def __init__(self, num_log_images: int = 32):
+        super().__init__()
+        self.num_log_images = num_log_images
+        self.test_log_indices = None
+        self.val_log_indices = None
+        self.train_log_indices = None
+
+        self.SSIM = SSIMLoss()
+        self.PSNR = PeakSignalNoiseRatio()
+    
+    def on_train_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx):
+
+        self.calculate_metrics(batch, outputs, "train")
+
+        if self.train_log_indices is None:
+            self.train_log_indices = list(
+                np.random.permutation(len(self.trainer.train_dataloader))[
+                    : self.num_log_images - 1
+                ]
+            )
+        self.train_log_indices.insert(0, 1)
+        
+        if batch_idx in self.train_log_indices:
+            undersampled_mri_image = outputs["undersampled_mri_image"].squeeze(0).detach().cpu().numpy()
+            reconstructed_mri_image = outputs["reconstructed_mri_image"].squeeze(0).detach().cpu().numpy()
+            full_mri_image = outputs["full_mri_image"].squeeze(0).detach().cpu().numpy()
+            self.log_image(batch.fname, batch_idx, batch.slice_num, undersampled_mri_image, reconstructed_mri_image, full_mri_image, "train")
+    
+    def on_validation_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx, dataloader_idx = 0):
+        self.calculate_metrics(batch, outputs, "val")
+
+        if self.val_log_indices is None:
+            self.val_log_indices = list(
+                np.random.permutation(len(self.trainer.val_dataloaders))[
+                    : self.num_log_images - 1
+                ]
+            )
+        self.val_log_indices.insert(0, 1)
+        
+        if batch_idx in self.val_log_indices:
+            undersampled_mri_image = outputs["undersampled_mri_image"].squeeze(0).detach().cpu().numpy()
+            reconstructed_mri_image = outputs["reconstructed_mri_image"].squeeze(0).detach().cpu().numpy()
+            full_mri_image = outputs["full_mri_image"].squeeze(0).detach().cpu().numpy()
+            self.log_image(batch.fname, batch_idx, batch.slice_num, undersampled_mri_image, reconstructed_mri_image, full_mri_image, "val")
+
+    
+    def log_image(self, fname, batch_idx, slice_num, undersampled_mri_image, reconstructed_mri_image, full_mri_image, flag):
+        fig, ax = plt.subplots(1,3,figsize=(18,5))
+        fig.subplots_adjust(wspace=0.0)
+    
+        ax[0].imshow(undersampled_mri_image,'gray')
+        ax[0].set_title("Undersampled Mri Image")
+
+        ax[1].imshow(reconstructed_mri_image,'gray')
+        ax[1].set_title("Reconstructed Mri Image")
+
+        ax[2].imshow(full_mri_image, 'gray')
+        ax[2].set_title("Full Mri Image")
+        
+        # remove all the ticks (both axes), and tick labels
+        for axes in ax:
+            axes.set_xticks([])
+            axes.set_yticks([])
+        # remove the frame of the chart
+        for axes in ax:
+            axes.spines['top'].set_visible(False)
+            axes.spines['right'].set_visible(False)
+            axes.spines['bottom'].set_visible(False)
+            axes.spines['left'].set_visible(False)
+        # remove the white space around the chart
+        plt.tight_layout()
+        self.logger.experiment.log({'images/{}/{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])) : wandb.Image(plt)})
+        plt.clf()
+        plt.cla()
+        plt.close()
+    
+    def calculate_metrics(self, batch: KspaceUNetSample, outputs, flag:str):
+        undersampled_mri_image = outputs["undersampled_mri_image"]
+        reconstructed_mri_image = outputs["reconstructed_mri_image"]
+        full_mri_image = outputs["full_mri_image"]
+        max_val = batch.max_value
+        self.log_dict({
+            f"{flag}/ssim_loss": self.SSIM(reconstructed_mri_image, full_mri_image, data_range=max_val),
+        }, on_epoch=True, on_step=True, sync_dist=True, batch_size=undersampled_mri_image.shape[0])

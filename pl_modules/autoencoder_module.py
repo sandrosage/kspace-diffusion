@@ -7,6 +7,7 @@ import fastmri
 from fastmri.data.transforms import center_crop_to_smallest, complex_center_crop
 from modules.losses import ELBOLoss
 from pl_modules.mri_module import MRIModule
+from typing import Tuple
 
 class AutoencoderKL(MRIModule):
     def __init__(self,
@@ -32,6 +33,24 @@ class AutoencoderKL(MRIModule):
         if monitor is not None:
             self.monitor = monitor
         self.ELBO = ELBOLoss()
+        self.criterion = nn.L1Loss()
+
+    def norm(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # group norm
+        b, c, h, w = x.shape
+        x = x.view(b, 2, c // 2 * h * w)
+
+        mean = x.mean(dim=2).view(b, 2, 1, 1)
+        std = x.std(dim=2).view(b, 2, 1, 1)
+
+        x = x.view(b, c, h, w)
+
+        return (x - mean) / std, mean, std
+
+    def unnorm(
+        self, x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+    ) -> torch.Tensor:
+        return x * std + mean
 
 
     def encode(self, x):
@@ -55,44 +74,37 @@ class AutoencoderKL(MRIModule):
         return dec, posterior
 
     def shared_step(self, batch):
-        input_euler = batch.masked_kspace
-        input_kspace = batch.kspace
-        output_euler, posterior = self(input_euler)
-        if input_euler.shape[-1] != output_euler.shape[-1]:
-            input_euler, output_euler = complex_center_crop_to_smallest(input,output_euler)
-        output_kspace = reconstruct_kspace(output_euler).unsqueeze(0)
-        output_mri = kspace_to_mri(output_kspace)
-        input_mri = kspace_to_mri(input_kspace)
-        # print("Input euler:", input_euler.shape)
-        # print("Output euler:", output_euler.shape)
-        # print("Input kspace:", input_kspace.shape)
-        # print("Output kspace:", output_kspace.shape)
-        # print("Input mri:", input_mri.shape)
-        # print("Output mri:", output_mri.shape)
-        return input_euler, input_kspace, input_mri, output_euler, output_kspace, output_mri, posterior
+        pass
 
     def training_step(self, batch, batch_idx):
         # 1: Get the output of the model
-        input_euler, input_kspace, input_mri, output_euler, output_kspace, output_mri, posterior = self.shared_step(batch)
-        # 2: Compute the losses
-        euler_loss = nn.functional.l1_loss(input_euler.contiguous(), output_euler.contiguous())
-        kspace_loss = nn.functional.l1_loss(input_kspace.contiguous(), output_kspace.contiguous())
-        elbo_loss = self.ELBO(euler_loss, posterior.kl(), input_euler) # ElBO for optimizing the VAE
+        input = batch.kspace
+        input = complex_center_crop(input, (320,320))
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = self.norm(input)
+        output, posterior = self(input,sample_posterior=True)
+        loss = self.criterion(input, output)
+        input = self.unnorm(input, mean, std)
+        output = self.unnorm(output, mean, std)
+        input = input.permute(0,2,3,1).contiguous()
+        output = output.permute(0,2,3,1).contiguous()
+        input_mri = kspace_to_mri(input)
+        output_mri = kspace_to_mri(output)
+        elbo_loss = self.ELBO(loss, posterior.kl(), input) # ElBO for optimizing the VAE
         ssim_loss = self.SSIM(input_mri.contiguous(), output_mri.contiguous(), data_range=batch.max_value) # SSIM on the reconstructed image and target image
 
         # 3: Encapsulate the metrics
         metrics = {
             "train/elbo_loss": elbo_loss,
-            "train/euler_loss": euler_loss,
-            "train/kspace_loss": kspace_loss,
+            "train/l1_loss": loss, 
             "train/ssim_loss": ssim_loss
         }
         # 4: Log the metrics
-        self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input_euler.shape[0])
+        self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
         return {
-            "loss": (euler_loss + kspace_loss + ssim_loss),
-            "input": input_kspace, 
-            "reconstruction": output_kspace,
+            "loss": (elbo_loss),
+            "input": input, 
+            "reconstruction": output,
             "rec_img": output_mri,
             "target": input_mri
         }
