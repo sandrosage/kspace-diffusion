@@ -2,7 +2,6 @@ from pl_modules.mri_module import MRIModule
 from torch import optim, nn
 from modules.transforms import kspace_to_mri,complex_center_crop_c_h_w
 import torch
-import fastmri.data.transforms as fT
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -5,6 +5,21 @@ import numpy as np
 from fastmri.data import transforms as T
 import fastmri
 
+def norm(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # group norm
+        b, c, h, w = x.shape
+        x = x.view(b, 2, c // 2 * h * w)
+
+        mean = x.mean(dim=2).view(b, 2, 1, 1)
+        std = x.std(dim=2).view(b, 2, 1, 1)
+
+        x = x.view(b, c, h, w)
+
+        return (x - mean) / std, mean, std
+
+def unnorm(x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+    return x * std + mean
+
 def kspace_to_mri(kspace: torch.Tensor, crop_size: Tuple[int,int] = (320,320)):
     slice_image = fastmri.ifft2c(kspace)
     slice_image_abs = fastmri.complex_abs(slice_image) 
@@ -291,6 +306,101 @@ class KspaceLDMDataTransform:
             crop_size=crop_size
         )
 
+class KspaceUNetSample(NamedTuple):
+    """
+    A sample of masked k-space for variational network reconstruction.
+
+    Args:
+        masked_kspace: k-space after applying sampling mask.
+        mask: The applied sampling mask.
+        num_low_frequencies: The number of samples for the densely-sampled
+            center.
+        target: The target image (if applicable).
+        fname: File name.
+        slice_num: The slice index.
+        max_value: Maximum image value.
+        crop_size: The size to crop the final image.
+    """
+    full_kspace: torch.Tensor
+    masked_kspace: torch.Tensor
+    mask: torch.Tensor
+    num_low_frequencies: Optional[int]
+    target: torch.Tensor
+    fname: str
+    slice_num: int
+    max_value: float
+    crop_size: Tuple[int, int]
+
+class KspaceUNetDataTransform:
+    """
+    Data Transformer for training VarNet models.
+    """
+
+    def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
+        """
+        Args:
+            mask_func: Optional; A function that can create a mask of
+                appropriate shape. Defaults to None.
+            use_seed: If True, this class computes a pseudo random number
+                generator seed from the filename. This ensures that the same
+                mask is used for all the slices of a given volume every time.
+        """
+        self.mask_func = mask_func
+        self.use_seed = use_seed
+
+    def __call__(
+        self,
+        kspace: np.ndarray,
+        mask: np.ndarray,
+        target: Optional[np.ndarray],
+        attrs: Dict,
+        fname: str,
+        slice_num: int,
+    ) -> KspaceUNetSample:
+        """
+        Args:
+            kspace: Input k-space of shape (num_coils, rows, cols) for
+                multi-coil data.
+            mask: Mask from the test dataset.
+            target: Target image.
+            attrs: Acquisition related information stored in the HDF5 object.
+            fname: File name.
+            slice_num: Serial number of the slice.
+
+        Returns:
+            A VarNetSample with the masked k-space, sampling mask, target
+            image, the filename, the slice number, the maximum image value
+            (from target), the target crop size, and the number of low
+            frequency lines sampled.
+        """
+        if target is not None:
+            target_torch = T.to_tensor(target)
+            max_value = attrs["max"]
+        else:
+            target_torch = torch.tensor(0)
+            max_value = 0.0
+
+        kspace_torch = T.to_tensor(kspace)
+        seed = None if not self.use_seed else tuple(map(ord, fname))
+        acq_start = attrs["padding_left"]
+        acq_end = attrs["padding_right"]
+
+        crop_size = (attrs["recon_size"][0], attrs["recon_size"][1])
+
+        if self.mask_func is not None:
+            masked_kspace, mask_torch, num_low_frequencies = T.apply_mask(
+                kspace_torch, self.mask_func, seed=seed, padding=(acq_start, acq_end)
+            )
+        return KspaceLDMSample(
+            masked_kspace=masked_kspace,
+            kspace =torch.cat([kspace_torch, torch.zeros(kspace_torch.shape[0], kspace_torch.shape[1], 1)], dim=2),
+            target=target_torch,
+            fname=fname,
+            slice_num=slice_num,
+            max_value=max_value,
+            crop_size=crop_size
+        )
+    
 class KspaceUNetSample(NamedTuple):
     """
     A sample of masked k-space for variational network reconstruction.

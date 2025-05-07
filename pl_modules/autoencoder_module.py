@@ -33,6 +33,24 @@ class AutoencoderKL(MRIModule):
         if monitor is not None:
             self.monitor = monitor
         self.ELBO = ELBOLoss()
+        self.criterion = nn.L1Loss()
+
+    def norm(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # group norm
+        b, c, h, w = x.shape
+        x = x.view(b, 2, c // 2 * h * w)
+
+        mean = x.mean(dim=2).view(b, 2, 1, 1)
+        std = x.std(dim=2).view(b, 2, 1, 1)
+
+        x = x.view(b, c, h, w)
+
+        return (x - mean) / std, mean, std
+
+    def unnorm(
+        self, x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+    ) -> torch.Tensor:
+        return x * std + mean
 
 
     def encode(self, x):
@@ -74,32 +92,32 @@ class AutoencoderKL(MRIModule):
         pass
 
     def training_step(self, batch, batch_idx):
+        # 1: Get the output of the model
         input = batch.kspace
-        input  = complex_center_crop(input, (320,320)).permute(0,3,1,2).contiguous()
-        input,mean,std = self.norm(input)
-        output, posterior = self(input)
-        # if input.shape[-1] != output.shape[-1]:
-        #     input_euler, output_euler = complex_center_crop_to_smallest(input,output_euler)
-        loss = nn.functional.l1_loss(input,output)
+        input = complex_center_crop(input, (320,320))
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = self.norm(input)
+        output, posterior = self(input,sample_posterior=True)
+        loss = self.criterion(input, output)
         input = self.unnorm(input, mean, std)
         output = self.unnorm(output, mean, std)
         input = input.permute(0,2,3,1).contiguous()
         output = output.permute(0,2,3,1).contiguous()
-        output_mri = kspace_to_mri(output)
         input_mri = kspace_to_mri(input)
-        # 2: Compute the losses
+        output_mri = kspace_to_mri(output)
         elbo_loss = self.ELBO(loss, posterior.kl(), input) # ElBO for optimizing the VAE
         ssim_loss = self.SSIM(input_mri.contiguous(), output_mri.contiguous(), data_range=batch.max_value) # SSIM on the reconstructed image and target image
 
         # 3: Encapsulate the metrics
         metrics = {
             "train/elbo_loss": elbo_loss,
+            "train/l1_loss": loss, 
             "train/ssim_loss": ssim_loss
         }
         # 4: Log the metrics
         self.log_dict(metrics, sync_dist=True, on_epoch=True, on_step=True, batch_size=input.shape[0])
         return {
-            "loss": elbo_loss,
+            "loss": (elbo_loss),
             "input": input, 
             "reconstruction": output,
             "rec_img": output_mri,
