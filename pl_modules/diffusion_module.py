@@ -10,6 +10,8 @@ from datetime import datetime
 from pytorch_lightning.loggers import WandbLogger
 import numpy as np
 
+torch.set_float32_matmul_precision('high')
+
 def min_max_scale_array(arr):
     min_val = arr.min()
     max_val = arr.max()
@@ -24,8 +26,9 @@ class DiffusionModel(pl.LightningModule):
             up_block_types=("AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D")
         )
         self.scheduler = diffusers.schedulers.DDPMScheduler()
+        self.scheduler.set_timesteps(50)
         self.train_log_indices = None
-        self.num_log_images = 128
+        self.num_log_images = 16
 
     def training_step(self, batch, batch_idx):
         images = batch["images"]
@@ -34,11 +37,13 @@ class DiffusionModel(pl.LightningModule):
         noisy_images = self.scheduler.add_noise(images, noise, steps)
         residual = self.model(noisy_images, steps).sample
         loss = torch.nn.functional.mse_loss(residual, noise)
+        
         self.log("train_loss", loss, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True)
         return {
             "loss": loss,
             "residual": residual,
-            "noisy_images": noisy_images
+            "noisy_images": noisy_images, 
+            "steps": steps
         }
 
     def configure_optimizers(self):
@@ -58,7 +63,11 @@ class DiffusionModel(pl.LightningModule):
             images = batch["images"]
             residual = outputs["residual"]
             noisy_images = outputs["noisy_images"]
-            denoised_images = noisy_images - residual
+            denoised_images = noisy_images.clone()
+            for t in self.scheduler.timesteps:
+                with torch.inference_mode():
+                    pred_noise = self.model(denoised_images,t).sample
+                    denoised_images = self.scheduler.step(pred_noise, t, denoised_images).prev_sample
             self.log_image(batch_idx, residual, noisy_images, denoised_images, images)
     
     def log_image(self, batch_idx, residual: torch.Tensor, noisy_images: torch.Tensor, denoised_images: torch.Tensor, images: torch.Tensor):
@@ -125,6 +134,6 @@ if __name__ == "__main__":
     wandb_logger = WandbLogger(project="Kspace-Unet", name=run_name, log_model=True, config=config)
     model = DiffusionModel()
     data = DiffusionData()
-    trainer = pl.Trainer(max_epochs=150, logger=wandb_logger)
+    trainer = pl.Trainer(max_epochs=150, logger=wandb_logger, devices=1)
     trainer.fit(model, data)
 

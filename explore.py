@@ -8,6 +8,8 @@ import random
 from typing import Tuple
 import matplotlib.pyplot as plt
 from typing import Tuple
+import torch.nn.functional as F
+
 def norm(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # group norm
         b, c, h, w = x.shape
@@ -99,7 +101,7 @@ class Unet(nn.Module):
         num_pool_layers: int = 4,
         drop_prob: float = 0.0,
         kernel_size: int = 3,
-        avg_pool: bool = True
+        latent_dim: int = 128
     ):
         """
         Args:
@@ -117,28 +119,26 @@ class Unet(nn.Module):
         self.num_pool_layers = num_pool_layers
         self.drop_prob = drop_prob
         self.kernel_size = kernel_size
-        self.avg_pool = avg_pool
+        self.latent_dim = 128
 
         self.down_sample_layers = nn.ModuleList([ConvBlock(in_chans, chans, drop_prob, self.kernel_size)])
-        if avg_pool: 
-            self.down_sample_pools = nn.ModuleList([nn.AvgPool2d(kernel_size=2, stride=2, padding=0)])
-        else:
-            self.down_sample_pools = nn.ModuleList([nn.Conv2d(in_channels=chans, out_channels=chans, kernel_size=2, stride=2, padding=0)])
+
+        self.down_sample_pools = nn.ModuleList([nn.AvgPool2d(kernel_size=2, stride=2, padding=0)])
         ch = chans
         for _ in range(num_pool_layers - 1):
             self.down_sample_layers.append(ConvBlock(ch, ch * 2, drop_prob, self.kernel_size))
-            if avg_pool:
-                self.down_sample_pools.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0))
-            else:
-                self.down_sample_pools.append(nn.Conv2d(in_channels=ch*2, out_channels=ch*2, kernel_size=2, stride=2, padding=0))
+            
+            self.down_sample_pools.append(nn.AvgPool2d(kernel_size=2, stride=2, padding=0))
             ch *= 2
-        self.conv = ConvBlock(ch, ch * 2, drop_prob)
+        self.conv_in = ConvBlock(ch, latent_dim, drop_prob=0.0)
+        self.conv_out = ConvBlock(latent_dim, ch*2, drop_prob)
 
         self.up_conv = nn.ModuleList()
         self.up_transpose_conv = nn.ModuleList()
         for _ in range(num_pool_layers - 1):
             self.up_transpose_conv.append(TransposeConvBlock(ch * 2, ch))
             self.up_conv.append(ConvBlock(ch * 2, ch, drop_prob, self.kernel_size))
+
             ch //= 2
 
         self.up_transpose_conv.append(TransposeConvBlock(ch * 2, ch))
@@ -146,6 +146,7 @@ class Unet(nn.Module):
             nn.Sequential(
                 ConvBlock(ch * 2, ch, drop_prob, self.kernel_size),
                 nn.Conv2d(ch, self.out_chans, kernel_size=1, stride=1),
+                # nn.Tanh()
             )
         )
         # print(self.up_conv)
@@ -167,8 +168,9 @@ class Unet(nn.Module):
             # output = F.avg_pool2d(output, kernel_size=2, stride=2, padding=0)
             output = pool(output)
 
-        output = self.conv(output)
-        print(output.shape)
+        output = self.conv_in(output)
+        output = self.conv_out(output)
+
 
         # apply up-sampling layers
         for transpose_conv, conv in zip(self.up_transpose_conv, self.up_conv):
@@ -183,7 +185,6 @@ class Unet(nn.Module):
                 padding[3] = 1  # padding bottom
             if torch.sum(torch.tensor(padding)) != 0:
                 output = F.pad(output, padding, "reflect")
-
             output = torch.cat([output, downsample_layer], dim=1)
             output = conv(output)
 
@@ -216,11 +217,11 @@ class ConvBlock(nn.Module):
             nn.Conv2d(in_chans, out_chans, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=False),
             nn.InstanceNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            # nn.Dropout2d(drop_prob),
+            nn.Dropout2d(drop_prob),
             nn.Conv2d(out_chans, out_chans, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=False),
             nn.InstanceNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            # nn.Dropout2d(drop_prob),
+            nn.Dropout2d(drop_prob),
         )
 
     def forward(self, image: torch.Tensor) -> torch.Tensor:
