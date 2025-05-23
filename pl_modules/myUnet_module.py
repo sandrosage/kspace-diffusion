@@ -6,12 +6,20 @@ from typing import Tuple, Literal
 from modules.transforms import KspaceUNetSample, kspace_to_mri
 
 class MyUnetModule(NewMRIModule):
-    def __init__(self, criterion, n_channels: int, loss_domain: Literal["kspace", "image", "combined", "ssim"] = "kspace", with_dc: bool = False, soft_dc: bool = True, num_log_images = 16):
+    def __init__(self, 
+                 n_channels: int, 
+                 loss_domain: Literal["kspace", "image", "combined", "ssim"] = "kspace", 
+                 with_dc: bool = False, 
+                 soft_dc: bool = True, 
+                 with_residual: bool = True,
+                 num_log_images = 16,
+                 latent_dim = 128
+        ):
         super().__init__(num_log_images)
 
         assert loss_domain in ("kspace", "image", "combined", "ssim"), "The loss domain can either be 'kspace', 'image', 'combined' or 'ssim'"
-        self.model = Unet_FastMRI(2, 2, n_channels, 4)
-        self.criterion = criterion
+        self.model = Unet_FastMRI(2, 2, n_channels, 4, with_residuals=with_residual, latent_dim=latent_dim)
+        self.criterion = nn.L1Loss()
         self.with_dc = with_dc
         if soft_dc: 
             self.dc_weight = nn.Parameter(torch.ones(1), requires_grad=True)
@@ -23,7 +31,7 @@ class MyUnetModule(NewMRIModule):
         self.lr_step_size = 40
         self.lr_gamma = 0.1
         self.weight_decay = 0.0
-        self.save_hyperparameters(ignore=["criterion"])
+        self.save_hyperparameters()
 
     def norm(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # group norm
@@ -95,6 +103,8 @@ class MyUnetModule(NewMRIModule):
             loss = mri_loss
         if self.loss_domain == "combined":
             loss += mri_loss
+        if self.loss_domain == "ssim":
+            loss = self.SSIM(reconstructed_mri_image, full_mri_image, batch.max_value)
         return {
             "loss": loss, 
             "undersampled_mri_image": undersampled_mri_image,
@@ -116,6 +126,8 @@ class MyUnetModule(NewMRIModule):
             loss = mri_loss
         if self.loss_domain == "combined":
             loss += mri_loss
+        if self.loss_domain == "ssim":
+            loss = self.SSIM(reconstructed_mri_image, full_mri_image, batch.max_value)
         return {
             "loss": loss, 
             "undersampled_mri_image": undersampled_mri_image,
@@ -126,7 +138,7 @@ class MyUnetModule(NewMRIModule):
 
     def shared_step(self, batch: KspaceUNetSample) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         full_kspace = batch.full_kspace
-        masked_kspace = batch.masked_kspace
+        masked_kspace = batch.full_kspace # edited
         mask = batch.mask
         reconstructed_kspace = self(masked_kspace, mask)
         full_mri_image = kspace_to_mri(full_kspace, (320,320))
@@ -134,9 +146,6 @@ class MyUnetModule(NewMRIModule):
         reconstructed_mri_image = kspace_to_mri(reconstructed_kspace, (320,320))
         return full_kspace, reconstructed_kspace, full_mri_image, undersampled_mri_image, reconstructed_mri_image
         
-    
-    # def configure_optimizers(self):
-    #     return optim.Adam(self.parameters(), lr=1e-4)
     def configure_optimizers(self):
         optim = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay

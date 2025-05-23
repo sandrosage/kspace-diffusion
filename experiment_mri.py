@@ -20,17 +20,19 @@ if __name__ == "__main__":
         "mask_type": "equispaced_fraction",
         "center_fractions": [0.04],
         "accelerations": [8],
-        "with_dc": True,
+        "with_dc": False,
         "loss_domain": "ssim", 
         "criterion": L1Loss(),
         "n_channels": 128,
-        "soft_dc": False
+        "soft_dc": False, 
+        "with_residual": True,
+        "latent_dim": 128
     }
-    run_name = "MyUnetModule_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    run_name = "MyUnet_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     wandb_logger = WandbLogger(project="Kspace-Unet", name=run_name, log_model=True, config=config)
 
-    model = MyUnetModule(criterion=config["criterion"], loss_domain=config["loss_domain"], with_dc=config["with_dc"], soft_dc= config["soft_dc"], n_channels=config["n_channels"], num_log_images=32)
+    model = MyUnetModule(loss_domain=config["loss_domain"], with_dc=config["with_dc"], soft_dc= config["soft_dc"], n_channels=config["n_channels"], num_log_images=32, with_residual=config["with_residual"], latent_dim=config["latent_dim"])
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
@@ -38,7 +40,7 @@ if __name__ == "__main__":
         mode="min",
         filename="myunet-{epoch:02d}"
     )
-    trainer = pl.Trainer(devices=1, max_epochs=40, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(max_epochs=40, logger=wandb_logger, callbacks=[model_checkpoint])
 
     mask_func = create_mask_for_mask_type(
         config["mask_type"], config["center_fractions"], config["accelerations"]
@@ -46,7 +48,7 @@ if __name__ == "__main__":
     # use random masks for train transform, fixed masks for val transform
     train_transform = KspaceUNetDataTransform(mask_func=mask_func, use_seed=False)
     val_transform = KspaceUNetDataTransform(mask_func=mask_func)
-    test_transform = KspaceUNetDataTransform
+    test_transform = KspaceUNetDataTransform()
     # ptl data module - this handles data loaders
     data_module = FastMriDataModule(
         data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),

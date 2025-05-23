@@ -98,6 +98,8 @@ class Unet_FastMRI(nn.Module):
         chans: int = 32,
         num_pool_layers: int = 4,
         drop_prob: float = 0.0,
+        with_residuals: bool = True,
+        latent_dim: int = 128
     ):
         """
         Args:
@@ -114,28 +116,46 @@ class Unet_FastMRI(nn.Module):
         self.chans = chans
         self.num_pool_layers = num_pool_layers
         self.drop_prob = drop_prob
-
+        self.with_residuals = with_residuals
+        self.latent_dim = latent_dim
+        self.res_weight = 16
         self.down_sample_layers = nn.ModuleList([ConvBlock(in_chans, chans, drop_prob)])
         ch = chans
         for _ in range(num_pool_layers - 1):
             self.down_sample_layers.append(ConvBlock(ch, ch * 2, drop_prob))
             ch *= 2
-        self.conv = ConvBlock(ch, ch * 2, drop_prob)
+        self.conv_in = ConvBlock(ch, self.latent_dim, drop_prob)
+        self.conv_out = ConvBlock(self.latent_dim, ch*2, drop_prob)
 
         self.up_conv = nn.ModuleList()
         self.up_transpose_conv = nn.ModuleList()
         for _ in range(num_pool_layers - 1):
             self.up_transpose_conv.append(TransposeConvBlock(ch * 2, ch))
-            self.up_conv.append(ConvBlock(ch * 2, ch, drop_prob))
+            if self.with_residuals:
+                self.up_conv.append(ConvBlock(ch * 2, ch, drop_prob))
+            else:
+                self.up_conv.append(ConvBlock(ch, ch, drop_prob))
             ch //= 2
 
         self.up_transpose_conv.append(TransposeConvBlock(ch * 2, ch))
-        self.up_conv.append(
-            nn.Sequential(
-                ConvBlock(ch * 2, ch, drop_prob),
-                nn.Conv2d(ch, self.out_chans, kernel_size=1, stride=1),
+        if self.with_residuals: 
+            self.up_conv.append(
+                nn.Sequential(
+                    ConvBlock(ch * 2, ch, drop_prob),
+                    nn.Conv2d(ch, self.out_chans, kernel_size=1, stride=1),
+                    # optional Tanh
+                    # nn.Tanh()
+                )
             )
-        )
+        else:
+            self.up_conv.append(
+                nn.Sequential(
+                    ConvBlock(ch, ch, drop_prob),
+                    nn.Conv2d(ch, self.out_chans, kernel_size=1, stride=1),
+                    # optional Tanh
+                    # nn.Tanh()
+                )
+            )
     
     def _downsample(self, x: torch.Tensor) -> Tuple[torch.Tensor, list]:
         stack = []
@@ -147,14 +167,17 @@ class Unet_FastMRI(nn.Module):
             stack.append(output)
             output = F.avg_pool2d(output, kernel_size=2, stride=2, padding=0)
 
-        output = self.conv(output)
+        output = self.conv_in(output)
 
         return output, stack
         
     def _upsample(self, x: torch.Tensor, stack: list) -> torch.Tensor:
+        res_weight = self.res_weight
+        x = self.conv_out(x)
         # apply up-sampling layers
         for transpose_conv, conv in zip(self.up_transpose_conv, self.up_conv):
             downsample_layer = stack.pop()
+            downsample_layer = downsample_layer*(1/res_weight)
             x = transpose_conv(x)
 
             # reflect pad on the right/botton if needed to handle odd input dimensions
@@ -166,8 +189,11 @@ class Unet_FastMRI(nn.Module):
             if torch.sum(torch.tensor(padding)) != 0:
                 x = F.pad(x, padding, "reflect")
 
-            x = torch.cat([x, downsample_layer], dim=1)
+            if self.with_residuals:
+                x = torch.cat([x, downsample_layer], dim=1)
+    
             x = conv(x)
+            res_weight /= 2
         
         return x
 
