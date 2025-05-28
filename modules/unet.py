@@ -124,9 +124,10 @@ class Unet_FastMRI(nn.Module):
         for _ in range(num_pool_layers - 1):
             self.down_sample_layers.append(ConvBlock(ch, ch * 2, drop_prob))
             ch *= 2
-        # self.conv_in = ConvBlock(ch, self.latent_dim, drop_prob)
-        # self.conv_out = ConvBlock(self.latent_dim, ch*2, drop_prob)
-        self.conv = ConvBlock(ch, ch*2, drop_prob)
+        self.conv_in = ConvBlock(ch, self.latent_dim, drop_prob)
+        # self.proj = nn.Linear(self.latent_dim*20*20, self.latent_dim*20*20)
+        self.conv_out = ConvBlock(self.latent_dim, ch*2, drop_prob)
+
         self.up_conv = nn.ModuleList()
         self.up_transpose_conv = nn.ModuleList()
         for _ in range(num_pool_layers - 1):
@@ -167,18 +168,19 @@ class Unet_FastMRI(nn.Module):
             stack.append(output)
             output = F.avg_pool2d(output, kernel_size=2, stride=2, padding=0)
 
-        # output = self.conv_in(output)
-        output = self.conv(output)
-
+        output = self.conv_in(output)
+        # output = output.view(output.size(0), -1)
+        # output = self.proj(output)
         return output, stack
         
     def _upsample(self, x: torch.Tensor, stack: list) -> torch.Tensor:
-        res_weight = self.res_weight
-        # x = self.conv_out(x)
+        # res_weight = self.res_weight
+        # x = x.view(1, self.latent_dim, 20, 20)
+        x = self.conv_out(x)
         # apply up-sampling layers
         for transpose_conv, conv in zip(self.up_transpose_conv, self.up_conv):
             downsample_layer = stack.pop()
-            downsample_layer = downsample_layer*(1/res_weight)
+            # downsample_layer = downsample_layer*(1/res_weight)
             x = transpose_conv(x)
 
             # reflect pad on the right/botton if needed to handle odd input dimensions
@@ -194,7 +196,7 @@ class Unet_FastMRI(nn.Module):
                 x = torch.cat([x, downsample_layer], dim=1)
     
             x = conv(x)
-            res_weight /= 2
+            # res_weight /= 2
         
         return x
 

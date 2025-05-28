@@ -1,30 +1,35 @@
 from pl_modules.mri_module import NewMRIModule
 from modules.unet import Unet_FastMRI
-from torch import nn, optim
+from torch import nn
 import torch
 from typing import Tuple, Literal
 from modules.transforms import KspaceUNetSample, kspace_to_mri
+from fastmri.data.transforms import complex_center_crop
 
 class MyUnetModule(NewMRIModule):
     def __init__(self, 
                  n_channels: int, 
                  loss_domain: Literal["kspace", "image", "combined", "ssim"] = "kspace", 
-                 with_dc: bool = False, 
-                 soft_dc: bool = True, 
                  with_residual: bool = True,
                  num_log_images = 16,
-                 latent_dim = 128
+                 latent_dim = 128, 
+                 mode: Literal["interpolation", "reconstruction"] = "interpolation"
         ):
         super().__init__(num_log_images)
 
         assert loss_domain in ("kspace", "image", "combined", "ssim"), "The loss domain can either be 'kspace', 'image', 'combined' or 'ssim'"
+        assert mode in ("interpolation", "reconstruction")
         self.model = Unet_FastMRI(2, 2, n_channels, 4, with_residuals=with_residual, latent_dim=latent_dim)
         self.criterion = nn.L1Loss()
-        self.with_dc = with_dc
-        if soft_dc: 
-            self.dc_weight = nn.Parameter(torch.ones(1), requires_grad=True)
+        self.mode = mode
+        if self.mode == "interpolation":
+            self.with_dc = True
         else:
-            self.dc_weight = torch.ones(1)
+            self.with_dc = False
+        # if soft_dc: 
+        #     self.dc_weight = nn.Parameter(torch.ones(1), requires_grad=True)
+        # else:
+        self.dc_weight = torch.ones(1)
     
         self.loss_domain = loss_domain
         self.lr = 0.0003
@@ -137,8 +142,13 @@ class MyUnetModule(NewMRIModule):
         
 
     def shared_step(self, batch: KspaceUNetSample) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # full_kspace = complex_center_crop(batch.full_kspace, (320,320))
         full_kspace = batch.full_kspace
-        masked_kspace = batch.full_kspace # edited
+        if self.mode == "interpolation":
+            masked_kspace = batch.masked_kspace
+        else:
+            masked_kspace = batch.full_kspace
+        # masked_kspace = complex_center_crop(masked_kspace, (320,320))
         mask = batch.mask
         reconstructed_kspace = self(masked_kspace, mask)
         full_mri_image = kspace_to_mri(full_kspace, (320,320))

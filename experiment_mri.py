@@ -20,19 +20,24 @@ if __name__ == "__main__":
         "mask_type": "equispaced_fraction",
         "center_fractions": [0.04],
         "accelerations": [8],
-        "with_dc": False,
         "loss_domain": "ssim", 
         "criterion": L1Loss(),
         "n_channels": 128,
-        "soft_dc": False, 
-        "with_residual": True,
-        "latent_dim": 128
+        "with_residual": False,
+        "latent_dim": 128,
+        "mode": "interpolation"
     }
-    run_name = "MyUnet_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
-    wandb_logger = WandbLogger(project="Kspace-Unet", name=run_name, log_model=True, config=config)
 
-    model = MyUnetModule(loss_domain=config["loss_domain"], with_dc=config["with_dc"], soft_dc= config["soft_dc"], n_channels=config["n_channels"], num_log_images=32, with_residual=config["with_residual"], latent_dim=config["latent_dim"])
+    if config["with_residual"]: 
+        model_name = "Unet_"
+    else:
+        model_name = "NoSkipUnet_"
+    model_name = model_name + config["mode"] + "_"
+    run_name = model_name + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
+    wandb_logger = WandbLogger(project="Kspace-Experiments", name=run_name, log_model=True, config=config)
+
+    model = MyUnetModule(loss_domain=config["loss_domain"], n_channels=config["n_channels"], num_log_images=32, with_residual=config["with_residual"], latent_dim=config["latent_dim"], mode=config["mode"])
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
@@ -40,7 +45,7 @@ if __name__ == "__main__":
         mode="min",
         filename="myunet-{epoch:02d}"
     )
-    trainer = pl.Trainer(max_epochs=40, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(max_epochs=2, logger=wandb_logger, callbacks=[model_checkpoint])
 
     mask_func = create_mask_for_mask_type(
         config["mask_type"], config["center_fractions"], config["accelerations"]
