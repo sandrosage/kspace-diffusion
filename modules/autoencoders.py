@@ -518,12 +518,13 @@ class DeepEncoder(nn.Module):
             nn.Conv2d(2 * c_hid, 2 * c_hid, kernel_size=3, padding=1, stride=2),  # 8x8 => 4x4
             act_fn(),
             nn.Flatten(),  # Image grid to single feature vector
-            nn.Linear(2 * 16 * c_hid, latent_dim),
         )
+        self.proj_head = nn.Linear(102400, latent_dim)
 
     def forward(self, x):
+        x = self.net(x)
         print(x.shape)
-        return self.net(x)
+        return self.proj_head(x)
 
 class DeepDecoder(nn.Module):
     def __init__(self, num_input_channels: int, base_channel_size: int, latent_dim: int, act_fn: object = nn.GELU):
@@ -538,7 +539,7 @@ class DeepDecoder(nn.Module):
         """
         super().__init__()
         c_hid = base_channel_size
-        self.linear = nn.Sequential(nn.Linear(latent_dim, 2 * 16 * c_hid), act_fn())
+        self.linear = nn.Sequential(nn.Linear(latent_dim, 102400), act_fn())
         self.net = nn.Sequential(
             nn.ConvTranspose2d(
                 2 * c_hid, 2 * c_hid, kernel_size=3, output_padding=1, padding=1, stride=2
@@ -558,7 +559,7 @@ class DeepDecoder(nn.Module):
 
     def forward(self, x):
         x = self.linear(x)
-        x = x.reshape(x.shape[0], -1, 4, 4)
+        x = x.reshape(x.shape[0], -1, 40, 40)
         x = self.net(x)
         return x
 
