@@ -331,7 +331,7 @@ class KspaceUNetSample(NamedTuple):
     max_value: float
     crop_size: Tuple[int, int]
 
-class KspaceUNetDataTransform:
+class KspaceUNetDataTransform320:
     """
     Data Transformer for training VarNet models.
     """
@@ -373,6 +373,7 @@ class KspaceUNetDataTransform:
             (from target), the target crop size, and the number of low
             frequency lines sampled.
         """
+        print("In transform")
         if target is not None:
             target_torch = T.to_tensor(target)
             max_value = attrs["max"]
@@ -391,40 +392,43 @@ class KspaceUNetDataTransform:
             masked_kspace, mask_torch, num_low_frequencies = T.apply_mask(
                 kspace_torch, self.mask_func, seed=seed, padding=(acq_start, acq_end)
             )
-        return KspaceLDMSample(
-            masked_kspace=masked_kspace,
-            kspace =torch.cat([kspace_torch, torch.zeros(kspace_torch.shape[0], kspace_torch.shape[1], 1)], dim=2),
-            target=target_torch,
-            fname=fname,
-            slice_num=slice_num,
-            max_value=max_value,
-            crop_size=crop_size
-        )
-    
-class KspaceUNetSample(NamedTuple):
-    """
-    A sample of masked k-space for variational network reconstruction.
 
-    Args:
-        masked_kspace: k-space after applying sampling mask.
-        mask: The applied sampling mask.
-        num_low_frequencies: The number of samples for the densely-sampled
-            center.
-        target: The target image (if applicable).
-        fname: File name.
-        slice_num: The slice index.
-        max_value: Maximum image value.
-        crop_size: The size to crop the final image.
-    """
-    full_kspace: torch.Tensor
-    masked_kspace: torch.Tensor
-    mask: torch.Tensor
-    num_low_frequencies: Optional[int]
-    target: torch.Tensor
-    fname: str
-    slice_num: int
-    max_value: float
-    crop_size: Tuple[int, int]
+            sample = KspaceUNetSample(
+                full_kspace=T.complex_center_crop(kspace_torch, (320,320)),
+                masked_kspace=T.complex_center_crop(masked_kspace, (320,320)),
+                mask=torch.zeros_like(masked_kspace),
+                num_low_frequencies=num_low_frequencies,
+                target=target_torch,
+                fname=fname,
+                slice_num=slice_num,
+                max_value=max_value,
+                crop_size=crop_size,
+            )
+        else:
+            masked_kspace = kspace_torch.clone()
+            shape = np.array(kspace_torch.shape)
+            num_cols = shape[-2]
+            shape[:-3] = 1
+            mask_shape = [1] * len(shape)
+            mask_shape[-2] = num_cols
+            mask_torch = torch.from_numpy(mask.reshape(*mask_shape).astype(np.float32))
+            mask_torch = mask_torch.reshape(*mask_shape)
+            mask_torch[:, :, :acq_start] = 0
+            mask_torch[:, :, acq_end:] = 0
+
+            sample = KspaceUNetSample(
+                full_kspace=T.complex_center_crop(kspace_torch,(320,320)),
+                masked_kspace=T.complex_center_crop(masked_kspace, (320,320)),
+                mask=torch.zeros_like(masked_kspace),
+                num_low_frequencies=0,
+                target=target_torch,
+                fname=fname,
+                slice_num=slice_num,
+                max_value=max_value,
+                crop_size=crop_size,
+            )
+
+        return sample
 
 class KspaceUNetDataTransform:
     """
