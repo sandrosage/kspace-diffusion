@@ -11,7 +11,7 @@ class MyUnetModule(NewMRIModule):
                  n_channels: int, 
                  loss_domain: Literal["kspace", "image", "combined", "ssim"] = "kspace", 
                  with_residual: bool = True,
-                 num_log_images = 16,
+                 num_log_images = 32,
                  latent_dim = 128, 
                  mode: Literal["interpolation", "reconstruction"] = "interpolation"
         ):

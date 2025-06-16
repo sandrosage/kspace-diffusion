@@ -203,7 +203,7 @@ class NewMRIModule(pl.LightningModule):
             axes.spines['left'].set_visible(False)
         # remove the white space around the chart
         plt.tight_layout()
-        self.logger.experiment.log({'images/{}/{}_{}_{}_Grid.png'.format(flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])) : wandb.Image(plt)})
+        self.logger.experiment.log({'images/{}/{}_{}_{}_{}_Grid.png'.format(self.trainer.current_epoch, flag, fname[0][:-3], batch_idx, str(slice_num.cpu().numpy()[0])) : wandb.Image(plt)})
         plt.clf()
         plt.cla()
         plt.close()

@@ -20,9 +20,9 @@ if __name__ == "__main__":
         "mask_type": "equispaced_fraction",
         "center_fractions": [0.04],
         "accelerations": [8],
-        "loss_domain": "ssim", 
+        "loss_domain": "kspace", 
         "criterion": L1Loss(),
-        "n_channels": 128,
+        "n_channels": 32,
         "with_residual": False,
         "latent_dim": 128,
         "mode": "interpolation"
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         mode="min",
         filename="myunet-{epoch:02d}"
     )
-    trainer = pl.Trainer(max_epochs=2, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(max_epochs=100, logger=wandb_logger, callbacks=[model_checkpoint])
 
     mask_func = create_mask_for_mask_type(
         config["mask_type"], config["center_fractions"], config["accelerations"]

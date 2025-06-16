@@ -331,6 +331,9 @@ class KspaceUNetSample(NamedTuple):
     max_value: float
     crop_size: Tuple[int, int]
 
+class ImageUNetSample(NamedTuple):
+    image: torch.Tensor
+
 class KspaceUNetDataTransform320:
     """
     Data Transformer for training VarNet models.
@@ -373,15 +376,14 @@ class KspaceUNetDataTransform320:
             (from target), the target crop size, and the number of low
             frequency lines sampled.
         """
-        print("In transform")
         if target is not None:
             target_torch = T.to_tensor(target)
             max_value = attrs["max"]
         else:
             target_torch = torch.tensor(0)
             max_value = 0.0
-
         kspace_torch = T.to_tensor(kspace)
+        kspace_torch = T.complex_center_crop(kspace_torch, (320,320))
         seed = None if not self.use_seed else tuple(map(ord, fname))
         acq_start = attrs["padding_left"]
         acq_end = attrs["padding_right"]
@@ -394,9 +396,9 @@ class KspaceUNetDataTransform320:
             )
 
             sample = KspaceUNetSample(
-                full_kspace=T.complex_center_crop(kspace_torch, (320,320)),
-                masked_kspace=T.complex_center_crop(masked_kspace, (320,320)),
-                mask=torch.zeros_like(masked_kspace),
+                full_kspace=kspace_torch,
+                masked_kspace=masked_kspace,
+                mask=torch.zeros_like(kspace_torch),
                 num_low_frequencies=num_low_frequencies,
                 target=target_torch,
                 fname=fname,
@@ -417,9 +419,9 @@ class KspaceUNetDataTransform320:
             mask_torch[:, :, acq_end:] = 0
 
             sample = KspaceUNetSample(
-                full_kspace=T.complex_center_crop(kspace_torch,(320,320)),
-                masked_kspace=T.complex_center_crop(masked_kspace, (320,320)),
-                mask=torch.zeros_like(masked_kspace),
+                full_kspace=kspace_torch,
+                masked_kspace=masked_kspace,
+                mask=torch.zeros_like(kspace_torch),
                 num_low_frequencies=0,
                 target=target_torch,
                 fname=fname,
@@ -430,6 +432,64 @@ class KspaceUNetDataTransform320:
 
         return sample
 
+class ImageUNetDataTransform320:
+    """
+    Data Transformer for training VarNet models.
+    """
+
+    def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
+        """
+        Args:
+            mask_func: Optional; A function that can create a mask of
+                appropriate shape. Defaults to None.
+            use_seed: If True, this class computes a pseudo random number
+                generator seed from the filename. This ensures that the same
+                mask is used for all the slices of a given volume every time.
+        """
+        self.mask_func = mask_func
+        self.use_seed = use_seed
+
+    def __call__(
+        self,
+        kspace: np.ndarray,
+        mask: np.ndarray,
+        target: Optional[np.ndarray],
+        attrs: Dict,
+        fname: str,
+        slice_num: int,
+    ) -> ImageUNetSample:
+        """
+        Args:
+            kspace: Input k-space of shape (num_coils, rows, cols) for
+                multi-coil data.
+            mask: Mask from the test dataset.
+            target: Target image.
+            attrs: Acquisition related information stored in the HDF5 object.
+            fname: File name.
+            slice_num: Serial number of the slice.
+
+        Returns:
+            A VarNetSample with the masked k-space, sampling mask, target
+            image, the filename, the slice number, the maximum image value
+            (from target), the target crop size, and the number of low
+            frequency lines sampled.
+        """
+        if target is not None:
+            target_torch = T.to_tensor(target)
+            max_value = attrs["max"]
+        else:
+            target_torch = torch.tensor(0)
+            max_value = 0.0
+        kspace_torch = T.to_tensor(kspace)
+        kspace_torch = T.complex_center_crop(kspace_torch, (320,320))
+        seed = None if not self.use_seed else tuple(map(ord, fname))
+        acq_start = attrs["padding_left"]
+        acq_end = attrs["padding_right"]
+
+        crop_size = (attrs["recon_size"][0], attrs["recon_size"][1])
+
+        image = fastmri.ifft2c(kspace_torch)
+        return ImageUNetSample(image=image)
 class KspaceUNetDataTransform:
     """
     Data Transformer for training VarNet models.
@@ -527,3 +587,62 @@ class KspaceUNetDataTransform:
             )
 
         return sample
+    
+class ImageUNetDataTransform:
+    """
+    Data Transformer for training VarNet models.
+    """
+
+    def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
+        """
+        Args:
+            mask_func: Optional; A function that can create a mask of
+                appropriate shape. Defaults to None.
+            use_seed: If True, this class computes a pseudo random number
+                generator seed from the filename. This ensures that the same
+                mask is used for all the slices of a given volume every time.
+        """
+        self.mask_func = mask_func
+        self.use_seed = use_seed
+
+    def __call__(
+        self,
+        kspace: np.ndarray,
+        mask: np.ndarray,
+        target: Optional[np.ndarray],
+        attrs: Dict,
+        fname: str,
+        slice_num: int,
+    ) -> ImageUNetSample:
+        """
+        Args:
+            kspace: Input k-space of shape (num_coils, rows, cols) for
+                multi-coil data.
+            mask: Mask from the test dataset.
+            target: Target image.
+            attrs: Acquisition related information stored in the HDF5 object.
+            fname: File name.
+            slice_num: Serial number of the slice.
+
+        Returns:
+            A VarNetSample with the masked k-space, sampling mask, target
+            image, the filename, the slice number, the maximum image value
+            (from target), the target crop size, and the number of low
+            frequency lines sampled.
+        """
+        if target is not None:
+            target_torch = T.to_tensor(target)
+            max_value = attrs["max"]
+        else:
+            target_torch = torch.tensor(0)
+            max_value = 0.0
+        kspace_torch = T.to_tensor(kspace)
+        # kspace_torch = T.complex_center_crop(kspace_torch, (320,320))
+        seed = None if not self.use_seed else tuple(map(ord, fname))
+        acq_start = attrs["padding_left"]
+        acq_end = attrs["padding_right"]
+
+        crop_size = (attrs["recon_size"][0], attrs["recon_size"][1])
+
+        image = fastmri.ifft2c(kspace_torch)
+        return ImageUNetSample(image=image)
