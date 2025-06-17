@@ -109,10 +109,9 @@ class Kspace_AE_Unet_SSIM(NewMRIModule):
         input = input.permute(0,3,1,2).contiguous()
         input, mean, std = norm(input)
         output = self(input)
-        loss = self.criterion(input, output)
         output = unnorm(output, mean, std)
         output = output.permute(0,2,3,1).contiguous()
-        return loss, output
+        return output
 
     
     def training_step(self, batch: KspaceUNetSample, batch_idx):

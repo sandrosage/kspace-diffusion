@@ -3,7 +3,46 @@ from diffusers.models.autoencoders.vae import Decoder, Encoder
 from torch.nn import L1Loss
 import torch
 from modules.transforms import KspaceUNetSample, norm, unnorm, kspace_to_mri
+from torch import optim, nn
+from typing import Tuple, Literal
+import torch.nn.functional as F
 
+class ZeroPaddingTransform(nn.Module):
+    def __init__(self, target_size: Tuple[int, int]):
+        super().__init__()
+        self.target_size = target_size
+    
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        h, w = input.shape[-2:]  # Assuming (C, H, W) or (B, C, H, W)
+        pad_h = max(0, self.target_size[0] - h)
+        pad_w = max(0, self.target_size[1] - w)
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+        # Padding format for torch.nn.functional.pad: (left, right, top, bottom)
+        padding = (pad_left, pad_right, pad_top, pad_bottom)
+        return F.pad(input, padding, mode='constant', value=0)
+        
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(target_size={self.target_size})"
+    
+class AdaptivePoolTransform(nn.Module):
+    def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
+        super().__init__()
+        assert pool_type in ("max", "avg"), "pooling type must either be 'max' or 'avg'"
+        self.output_size = output_size
+        self.pool_type = pool_type
+    
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        if self.pool_type == "avg":
+            return F.adaptive_avg_pool2d(input, self.output_size)
+        else:
+            return F.adaptive_max_pool2d(input, self.output_size)
+        
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(output_size={self.output_size}, pool_type={self.pool_type})"
+    
 def create_channels(n: int, chans: int = 32):
     blocks = (chans,)
     for i in range(n-1):
@@ -24,6 +63,7 @@ class Diffusers_VAE(NewMRIModule):
         self.out_channels = out_channels
         self.latent_dim = latent_dim
         self.down_layers = down_layers
+        self.transform = AdaptivePoolTransform((640,368))
 
         down_block_out_channels = create_channels(self.down_layers)
         up_block_out_channels = create_channels(self.down_layers)[::-1]
@@ -59,6 +99,7 @@ class Diffusers_VAE(NewMRIModule):
     def shared_step(self, batch: KspaceUNetSample):
         input = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
+        input = self.transform(input)
         input, mean, std = norm(input)
         output = self(input)
         loss = self.criterion(input,output)
@@ -105,3 +146,6 @@ class Diffusers_VAE(NewMRIModule):
             "reconstructed_mri_image": output_img, 
             "full_mri_image": batch.target
         }
+    
+    def configure_optimizers(self):
+        return optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr=1e-4)
