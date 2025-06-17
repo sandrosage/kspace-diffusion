@@ -7,6 +7,7 @@ import torch
 from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch.nn.functional as F
 from typing import Tuple, Literal
+
 class AdaptivePoolTransform(nn.Module):
     def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
         super().__init__()

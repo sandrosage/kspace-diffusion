@@ -31,7 +31,8 @@ if __name__ == "__main__":
         "loss": "L1", 
         "latent_dim": 16,
         "n_channels": 32,
-        "epochs": 100
+        "epochs": 100, 
+        "down_layers": 5
     }
 
     assert config["domain"] in ("Kspace", "CImage"), "You can only select 'Kspace' or 'CImage' as domain"
@@ -56,7 +57,7 @@ if __name__ == "__main__":
 
     print(model_name)
     
-    model = Diffusers_VAE(latent_dim=config["latent_dim"])
+    model = Diffusers_VAE(latent_dim=config["latent_dim"], down_layers=config["down_layers"])
     # model = Kspace_AE_Unet(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
 
     
