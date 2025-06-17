@@ -6,12 +6,21 @@ import wandb
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pl_modules.ae_unet_module import Kspace_AE_Unet, Kspace_AE_Unet_SSIM
+from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch
 from fastmri.pl_modules import FastMriDataModule
 from fastmri.data.subsample import create_mask_for_mask_type
+import numpy as np
 
-torch.set_float32_matmul_precision('high')
+def set_seed(seed: int = 423460604129):
+    np.random.seed(seed)  # NumPy
+    torch.manual_seed(seed)  # CPU
+    torch.cuda.manual_seed(seed)  # GPU
+    torch.cuda.manual_seed_all(seed)
+
 if __name__ == "__main__":
+    set_seed()
+    torch.set_float32_matmul_precision('high')
     config = {
         "mask_type": "equispaced_fraction",
         "center_fractions": [0.04],
@@ -20,7 +29,7 @@ if __name__ == "__main__":
         "batch_size": 1,
         "domain": "Kspace",
         "loss": "L1", 
-        "latent_dim": 128,
+        "latent_dim": 16,
         "n_channels": 32,
         "epochs": 100
     }
@@ -29,10 +38,8 @@ if __name__ == "__main__":
     assert config["loss"] in ("L1", "SSIM"), "You can only select 'L1' or 'SSIM' as objective function"
     # assert (config["batch_size"] > 1) and (config["cropped"]), "When the 'batch_size' is > 1, then you have to set 'cropped' to TRUE"
 
-    model_name = config["domain"] + "_AE_Unet"
-
-    if config["loss"] == "SSIM":
-        model_name += "_SSIM"
+    # model_name = config["domain"] + "_AE_Unet"
+    model_name = "Diffusers_VAE_"
 
     mask_func = create_mask_for_mask_type(
         config["mask_type"], config["center_fractions"], config["accelerations"]
@@ -49,10 +56,8 @@ if __name__ == "__main__":
 
     print(model_name)
     
-    if config["loss"] == "SSIM":
-        model = Kspace_AE_Unet_SSIM(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
-    else:
-        model = Kspace_AE_Unet(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
+    model = Diffusers_VAE(latent_dim=config["latent_dim"])
+    # model = Kspace_AE_Unet(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -61,7 +66,7 @@ if __name__ == "__main__":
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
-        monitor="val/ssim_epoch",
+        monitor="val/kspace_l1_epoch",
         mode="min",
         filename=model_name[:14] + "-{epoch:02d}"
     )
