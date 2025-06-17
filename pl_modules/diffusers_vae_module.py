@@ -28,7 +28,7 @@ class Diffusers_VAE(NewMRIModule):
         down_block_out_channels = create_channels(self.down_layers)
         up_block_out_channels = create_channels(self.down_layers)[::-1]
         down_blocks = self.down_layers*("DownEncoderBlock2D", )
-        up_blocks = self.down_layers* ("UpEncoderBlock2D", )
+        up_blocks = self.down_layers* ("UpDecoderBlock2D", )
 
         self.encoder = Encoder(
             in_channels=self.in_channels, 
