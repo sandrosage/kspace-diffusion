@@ -65,8 +65,11 @@ class Diffusers_VAE(NewMRIModule):
         self.down_layers = down_layers
         self.transform = AdaptivePoolTransform((640,368))
 
+        self.save_hyperparameters()
+        
         down_block_out_channels = create_channels(self.down_layers)
         up_block_out_channels = create_channels(self.down_layers)[::-1]
+        up_block_out_channels = down_block_out_channels[::-1]
         down_blocks = self.down_layers*("DownEncoderBlock2D", )
         up_blocks = self.down_layers* ("UpDecoderBlock2D", )
 
@@ -148,4 +151,5 @@ class Diffusers_VAE(NewMRIModule):
         }
     
     def configure_optimizers(self):
-        return optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr=1e-4)
+        return optim.Adam(list(self.encoder.parameters())+ list(self.decoder.parameters()), lr=1e-4)
+    
