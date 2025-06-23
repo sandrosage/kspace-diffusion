@@ -7,6 +7,7 @@ import torch
 from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch.nn.functional as F
 from typing import Tuple, Literal
+
 class AdaptivePoolTransform(nn.Module):
     def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
         super().__init__()
@@ -64,7 +65,26 @@ class LDM(pl.LightningModule):
         residual = self.model(z_diffused, steps).sample
         loss = torch.nn.functional.mse_loss(residual, noise)
 
-        self.log("mse_noise_loss", loss, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True)
+        self.log("train/mse_noise_loss", loss, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True, batch_size=batch.full_kspace.shape[0])
         return {
             "loss": loss,
         }
+    
+    def validation_step(self, batch: KspaceUNetSample, batch_idx):
+        input = batch.full_kspace
+        input = input.permute(0,3,1,2).contiguous()
+        input = self.transform(input)
+        input, mean, std = norm(input)
+        
+        with torch.no_grad():
+            z = self.first_stage.encode(input)
+    
+        z_diffused, steps, noise = self.diffusion(z)
+        residual = self.model(z_diffused, steps).sample
+        loss = torch.nn.functional.mse_loss(residual, noise)
+
+        self.log("val/mse_noise_loss", loss, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True)
+        return {
+            "loss": loss,
+        }
+        

@@ -1,10 +1,28 @@
-from typing import NamedTuple, Optional, Dict, Tuple
+from typing import NamedTuple, Optional, Dict, Tuple, Literal
 import torch
 from fastmri.data.subsample import MaskFunc
 import numpy as np
 from fastmri.data import transforms as T
 import fastmri
+from torch import nn
+import torch.nn.functional as F
 
+class AdaptivePoolTransform(nn.Module):
+    def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
+        super().__init__()
+        assert pool_type in ("max", "avg"), "pooling type must either be 'max' or 'avg'"
+        self.output_size = output_size
+        self.pool_type = pool_type
+    
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        if self.pool_type == "avg":
+            return F.adaptive_avg_pool2d(input, self.output_size)
+        else:
+            return F.adaptive_max_pool2d(input, self.output_size)
+        
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(output_size={self.output_size}, pool_type={self.pool_type})"
+    
 def norm(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # group norm
         b, c, h, w = x.shape
@@ -495,7 +513,7 @@ class KspaceUNetDataTransform:
     Data Transformer for training VarNet models.
     """
 
-    def __init__(self, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
+    def __init__(self, adapt_pool: bool = True, mask_func: Optional[MaskFunc] = None, use_seed: bool = True):
         """
         Args:
             mask_func: Optional; A function that can create a mask of
@@ -506,6 +524,7 @@ class KspaceUNetDataTransform:
         """
         self.mask_func = mask_func
         self.use_seed = use_seed
+        self.adapt_pool = adapt_pool
 
     def __call__(
         self,
@@ -540,6 +559,9 @@ class KspaceUNetDataTransform:
             max_value = 0.0
 
         kspace_torch = T.to_tensor(kspace)
+        if self.adapt_pool:
+            kspace_torch = AdaptivePoolTransform((640,368))(kspace_torch)
+
         seed = None if not self.use_seed else tuple(map(ord, fname))
         acq_start = attrs["padding_left"]
         acq_end = attrs["padding_right"]
