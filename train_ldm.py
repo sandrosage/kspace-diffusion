@@ -5,34 +5,34 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pl_modules.ae_unet_module import Kspace_AE_Unet, Kspace_AE_Unet_SSIM
 from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch
 from fastmri.pl_modules import FastMriDataModule
 from fastmri.data.subsample import create_mask_for_mask_type
-# import numpy as np
+import numpy as np
+from pl_modules.ldm_module import LDM
 
-# def set_seed(seed: int = 47829):
-#     np.random.seed(seed)  # NumPy
-#     torch.manual_seed(seed)  # CPU
-#     torch.cuda.manual_seed(seed)  # GPU
-#     torch.cuda.manual_seed_all(seed)
+def set_seed(seed: int = 47829):
+    np.random.seed(seed)  # NumPy
+    torch.manual_seed(seed)  # CPU
+    torch.cuda.manual_seed(seed)  # GPU
+    torch.cuda.manual_seed_all(seed)
 
 if __name__ == "__main__":
-    # set_seed()
+    set_seed()
     torch.set_float32_matmul_precision('high')
     config = {
         "mask_type": "equispaced_fraction",
         "center_fractions": [0.04],
         "accelerations": [8],
         "cropped": False, 
-        "batch_size": 16,
+        "batch_size": 32,
         "domain": "Kspace",
         "loss": "L1", 
-        "latent_dim": 8,
+        "latent_dim": 16,
         "n_channels": 32,
         "epochs": 100, 
-        "down_layers": 4
+        "down_layers": 5
     }
 
     assert config["domain"] in ("Kspace", "CImage"), "You can only select 'Kspace' or 'CImage' as domain"
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # assert (config["batch_size"] > 1) and (config["cropped"]), "When the 'batch_size' is > 1, then you have to set 'cropped' to TRUE"
 
     # model_name = config["domain"] + "_AE_Unet"
-    model_name = "Diffusers_VAE_"
+    model_name = "LDM_"
 
     mask_func = create_mask_for_mask_type(
         config["mask_type"], config["center_fractions"], config["accelerations"]
@@ -57,33 +57,31 @@ if __name__ == "__main__":
 
     print(model_name)
     
-    # model = Diffusers_VAE(latent_dim=config["latent_dim"], down_layers=config["down_layers"])
-    model = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/oletkewy/checkpoints/Diffusers_VAE_-epoch=03.ckpt", down_layers=5)
-    # model = Kspace_AE_Unet(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
+    first_stage = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/u80szjw0/checkpoints/Diffusers_VAE_-epoch=12.ckpt")
+    model = LDM(first_stage)
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
-    wandb_logger = WandbLogger(project=model_name[:14], name=run_name, log_model=False, config=config, resume="allow", id="oletkewy")
+    wandb_logger = WandbLogger(project=model_name[:4], name=run_name, log_model=False, config=config)
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
-        monitor="val/kspace_l1_epoch",
+        monitor="val/mse_noise_loss_epoch",
         mode="min",
-        filename=model_name[:14] + "-{epoch:02d}"
+        filename=model_name[:4] + "-{epoch:02d}"
     )
 
     trainer = pl.Trainer(max_epochs=config["epochs"], logger=wandb_logger, callbacks=[model_checkpoint])
 
     data_module = FastMriDataModule(
-        data_path=Path("/home/janus/iwbi-cip-datasets/shared/fastMRI/knee"),
+        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
         test_transform=test_transform,
         combine_train_val=False,
         test_split="test",
-        test_path="/home/janus/iwbi-cip-datasets/shared/fastMRI/knee/singlecoil_test_v2",
         sample_rate=None,
         batch_size=config["batch_size"],
         num_workers=4,
