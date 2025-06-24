@@ -76,13 +76,14 @@ if __name__ == "__main__":
     trainer = pl.Trainer(max_epochs=config["epochs"], logger=wandb_logger, callbacks=[model_checkpoint])
 
     data_module = FastMriDataModule(
-        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
+        data_path=Path("/home/janus/iwbi-cip-datasets/shared/fastMRI/knee"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
         test_transform=test_transform,
         combine_train_val=False,
         test_split="test",
+        test_path="/home/janus/iwbi-cip-datasets/shared/fastMRI/knee/singlecoil_test_v2",
         sample_rate=None,
         batch_size=config["batch_size"],
         num_workers=4,
