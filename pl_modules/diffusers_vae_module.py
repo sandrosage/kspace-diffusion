@@ -55,7 +55,8 @@ class Diffusers_VAE(NewMRIModule):
                  in_channels: int = 2, 
                  out_channels: int = 2, 
                  latent_dim: int = 16,
-                 down_layers: int = 4,  
+                 down_layers: int = 4,
+                 n_channels: int = 32,   
                  num_log_images = 32):
         super().__init__(num_log_images)
 
@@ -63,12 +64,13 @@ class Diffusers_VAE(NewMRIModule):
         self.out_channels = out_channels
         self.latent_dim = latent_dim
         self.down_layers = down_layers
+        self.n_channels = n_channels
         self.transform = AdaptivePoolTransform((640,368))
 
         self.save_hyperparameters()
         
-        down_block_out_channels = create_channels(self.down_layers)
-        up_block_out_channels = create_channels(self.down_layers)[::-1]
+        down_block_out_channels = create_channels(self.down_layers, chans=self.n_channels)
+        up_block_out_channels = create_channels(self.down_layers, chans=self.n_channels)[::-1]
         up_block_out_channels = down_block_out_channels[::-1]
         down_blocks = self.down_layers*("DownEncoderBlock2D", )
         up_blocks = self.down_layers* ("UpDecoderBlock2D", )

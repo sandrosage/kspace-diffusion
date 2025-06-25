@@ -26,11 +26,11 @@ if __name__ == "__main__":
         "center_fractions": [0.04],
         "accelerations": [8],
         "cropped": False, 
-        "batch_size": 16,
+        "batch_size": 1,
         "domain": "Kspace",
         "loss": "L1", 
         "latent_dim": 8,
-        "n_channels": 32,
+        "n_channels": 64,
         "epochs": 100, 
         "down_layers": 4
     }
@@ -57,14 +57,14 @@ if __name__ == "__main__":
 
     print(model_name)
     
-    # model = Diffusers_VAE(latent_dim=config["latent_dim"], down_layers=config["down_layers"])
-    model = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/oletkewy/checkpoints/Diffusers_VAE_-epoch=03.ckpt", down_layers=5)
+    model = Diffusers_VAE(latent_dim=config["latent_dim"], down_layers=config["down_layers"], n_channels=config["n_channels"])
+    # model = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/oletkewy/checkpoints/Diffusers_VAE_-epoch=03.ckpt", down_layers=5)
     # model = Kspace_AE_Unet(n_channels=config["n_channels"], latent_dim=config["latent_dim"])
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
-    wandb_logger = WandbLogger(project=model_name[:14], name=run_name, log_model=False, config=config, resume="allow", id="oletkewy")
+    wandb_logger = WandbLogger(project=model_name[:14], name=run_name, log_model=False, config=config)
 
     model_checkpoint = ModelCheckpoint(
         save_top_k=2,
@@ -76,13 +76,14 @@ if __name__ == "__main__":
     trainer = pl.Trainer(max_epochs=config["epochs"], logger=wandb_logger, callbacks=[model_checkpoint])
 
     data_module = FastMriDataModule(
-        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
+        data_path=Path("/home/janus/iwbi-cip-datasets/shared/fastMRI/knee"),
         challenge="singlecoil",
         train_transform=train_transform,
         val_transform=val_transform,
         test_transform=test_transform,
         combine_train_val=False,
         test_split="test",
+        test_path="/home/janus/iwbi-cip-datasets/shared/fastMRI/knee/singlecoil_test_v2",
         sample_rate=None,
         batch_size=config["batch_size"],
         num_workers=4,
