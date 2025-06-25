@@ -1,28 +1,12 @@
 import pytorch_lightning as pl
 from diffusers.models.unets.unet_2d import UNet2DModel
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from torch import optim, nn
-from modules.transforms import norm, unnorm, KspaceUNetSample
+from torch import optim
+from modules.transforms import norm, unnorm, KspaceUNetSample, AdaptivePoolTransform
 import torch
 from pl_modules.diffusers_vae_module import Diffusers_VAE
-import torch.nn.functional as F
-from typing import Tuple, Literal
 
-class AdaptivePoolTransform(nn.Module):
-    def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
-        super().__init__()
-        assert pool_type in ("max", "avg"), "pooling type must either be 'max' or 'avg'"
-        self.output_size = output_size
-        self.pool_type = pool_type
-    
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if self.pool_type == "avg":
-            return F.adaptive_avg_pool2d(input, self.output_size)
-        else:
-            return F.adaptive_max_pool2d(input, self.output_size)
-        
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(output_size={self.output_size}, pool_type={self.pool_type})"
+
     
 class LDM(pl.LightningModule):
     def __init__(self, first_stage_model: Diffusers_VAE):

@@ -560,7 +560,9 @@ class KspaceUNetDataTransform:
 
         kspace_torch = T.to_tensor(kspace)
         if self.adapt_pool:
+            kspace_torch = kspace_torch.permute(2, 0, 1).contiguous()
             kspace_torch = AdaptivePoolTransform((640,368))(kspace_torch)
+            kspace_torch = kspace_torch.permute(1, 2, 0).contiguous()
 
         seed = None if not self.use_seed else tuple(map(ord, fname))
         acq_start = attrs["padding_left"]

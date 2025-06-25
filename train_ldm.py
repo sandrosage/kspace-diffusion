@@ -9,17 +9,10 @@ from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch
 from fastmri.pl_modules import FastMriDataModule
 from fastmri.data.subsample import create_mask_for_mask_type
-import numpy as np
 from pl_modules.ldm_module import LDM
 
-def set_seed(seed: int = 47829):
-    np.random.seed(seed)  # NumPy
-    torch.manual_seed(seed)  # CPU
-    torch.cuda.manual_seed(seed)  # GPU
-    torch.cuda.manual_seed_all(seed)
-
 if __name__ == "__main__":
-    set_seed()
+
     torch.set_float32_matmul_precision('high')
     config = {
         "mask_type": "equispaced_fraction",
@@ -57,7 +50,7 @@ if __name__ == "__main__":
 
     print(model_name)
     
-    first_stage = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/u80szjw0/checkpoints/Diffusers_VAE_-epoch=12.ckpt")
+    first_stage = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/u80szjw0/checkpoints/Diffusers_VAE_-epoch=11.ckpt")
     model = LDM(first_stage)
 
     
