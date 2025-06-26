@@ -5,6 +5,7 @@ import os
 from typing import Union, Optional, Callable
 import h5py
 from fastmri.data.mri_data import FastMRIRawDataSample
+from modules.transforms import LDMSample
 
 class LatentDataset(Dataset):
     def __init__(
@@ -23,10 +24,10 @@ class LatentDataset(Dataset):
         self.transform = transform
 
         files = list(Path(self.root).iterdir())
+        self.raw_samples = []
         for fname in sorted(files):
             metadata, num_slices = self._retrieve_metadata(fname)
 
-            self.raw_samples = []
             for slice_ind in range(num_slices):
                 self.raw_samples.append(FastMRIRawDataSample(fname, slice_ind, metadata))
 
@@ -35,7 +36,7 @@ class LatentDataset(Dataset):
             metadata = dict(
                 **hf.attrs
             )
-        num_slices = hf["full_latent_tensor"].shape[0]
+            num_slices = hf["full_latent_tensor"].shape[0]
         return metadata, num_slices
 
     def __len__(self):
@@ -52,7 +53,12 @@ class LatentDataset(Dataset):
             full_latent_tensor = self.transform(full_latent_tensor)
             masked_latent_tensor = self.transform(masked_latent_tensor)
         
-        return (full_latent_tensor, masked_latent_tensor, metadata, fname.name, dataslice)
+        return LDMSample(
+            full_latent_tensor=full_latent_tensor, 
+            masked_latent_tensor=masked_latent_tensor,
+            metadata=metadata, 
+            fname=fname.name, 
+            slice_num=dataslice)
 
         
 class LDMLatentDataModule(pl.LightningDataModule):
@@ -62,9 +68,9 @@ class LDMLatentDataModule(pl.LightningDataModule):
             challenge: str, 
             batch_size: int,
             num_workers: int,
-            train_transform: Callable,
-            val_transform: Callable,
-            test_transform: Callable
+            train_transform: Optional[Callable] = None,
+            val_transform: Optional[Callable] = None,
+            test_transform: Optional[Callable] = None
             ):
         super().__init__()
 

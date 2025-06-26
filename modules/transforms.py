@@ -7,6 +7,8 @@ import fastmri
 from torch import nn
 import torch.nn.functional as F
 
+
+
 class AdaptivePoolTransform(nn.Module):
     def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
         super().__init__()
@@ -26,10 +28,10 @@ class AdaptivePoolTransform(nn.Module):
 def norm(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # group norm
         b, c, h, w = x.shape
-        x = x.view(b, 2, c // 2 * h * w)
+        x = x.view(b, c, c // c * h * w)
 
-        mean = x.mean(dim=2).view(b, 2, 1, 1)
-        std = x.std(dim=2).view(b, 2, 1, 1)
+        mean = x.mean(dim=2).view(b, c, 1, 1)
+        std = x.std(dim=2).view(b, c, 1, 1)
 
         x = x.view(b, c, h, w)
 
@@ -156,7 +158,13 @@ class KspaceLDMSample(NamedTuple):
     max_value: float
     crop_size: Tuple[int,int]
 
-
+class LDMSample(NamedTuple):
+    full_latent_tensor: torch.Tensor
+    masked_latent_tensor: torch.Tensor
+    metadata: dict 
+    fname: str 
+    slice_num: int
+    
 class KspaceLDMWithMaskInfoSample(NamedTuple):
     """
     A subsampled image for U-Net reconstruction.
