@@ -1,57 +1,27 @@
 from pathlib import Path
-from modules.transforms import KspaceUNetDataTransform, KspaceUNetDataTransform320
+from pl_modules.data_module import LDMLatentDataModule
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pl_modules.diffusers_vae_module import Diffusers_VAE
 import torch
-from fastmri.pl_modules import FastMriDataModule
-from fastmri.data.subsample import create_mask_for_mask_type
 from pl_modules.ldm_module import LDM
-
 if __name__ == "__main__":
-
-    torch.set_float32_matmul_precision('high')
     config = {
-        "mask_type": "equispaced_fraction",
-        "center_fractions": [0.04],
-        "accelerations": [8],
-        "cropped": False, 
-        "batch_size": 32,
-        "domain": "Kspace",
-        "loss": "L1", 
-        "latent_dim": 16,
-        "n_channels": 32,
-        "epochs": 100, 
-        "down_layers": 5
+        "epochs": 100,
+        "in_channels": 16,
+        "out_channels": 16,
+        "batch_size": 32
     }
 
-    assert config["domain"] in ("Kspace", "CImage"), "You can only select 'Kspace' or 'CImage' as domain"
-    assert config["loss"] in ("L1", "SSIM"), "You can only select 'L1' or 'SSIM' as objective function"
-    # assert (config["batch_size"] > 1) and (config["cropped"]), "When the 'batch_size' is > 1, then you have to set 'cropped' to TRUE"
+    torch.set_float32_matmul_precision('high')
 
-    # model_name = config["domain"] + "_AE_Unet"
-    model_name = "LDM_"
-
-    mask_func = create_mask_for_mask_type(
-        config["mask_type"], config["center_fractions"], config["accelerations"]
-    )
-    train_transform = KspaceUNetDataTransform(mask_func=mask_func, use_seed=False)
-    val_transform = KspaceUNetDataTransform(mask_func=mask_func)
-    test_transform = KspaceUNetDataTransform()
-
-    if config["cropped"]:
-        model_name += "_320"
-        train_transform = KspaceUNetDataTransform320(mask_func=mask_func, use_seed=False)
-        val_transform = KspaceUNetDataTransform320(mask_func=mask_func)
-        test_transform = KspaceUNetDataTransform320()
+    model_name = "LDM"
 
     print(model_name)
     
-    first_stage = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE_/u80szjw0/checkpoints/Diffusers_VAE_-epoch=11.ckpt")
-    model = LDM(first_stage)
+    model = LDM(in_channels=config["in_channels"], out_channels=config["out_channels"])
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -65,21 +35,14 @@ if __name__ == "__main__":
         filename=model_name[:4] + "-{epoch:02d}"
     )
 
+    dm = LDMLatentDataModule(
+    data_path=Path("latent_data/latent_data/"),
+    challenge="singlecoil",
+    batch_size=config["batch_size"],
+    num_workers=4, 
+)
+    
     trainer = pl.Trainer(max_epochs=config["epochs"], logger=wandb_logger, callbacks=[model_checkpoint])
 
-    data_module = FastMriDataModule(
-        data_path=Path("/home/saturn/iwai/iwai113h/IdeaLab/knee_dataset"),
-        challenge="singlecoil",
-        train_transform=train_transform,
-        val_transform=val_transform,
-        test_transform=test_transform,
-        combine_train_val=False,
-        test_split="test",
-        sample_rate=None,
-        batch_size=config["batch_size"],
-        num_workers=4,
-        distributed_sampler=False,
-        use_dataset_cache_file=True
-    )
-    trainer.fit(model,datamodule=data_module)
+    trainer.fit(model,datamodule=dm)
     wandb.finish()
