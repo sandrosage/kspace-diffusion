@@ -1,8 +1,8 @@
 #!/bin/bash -l
 #SBATCH  --gres=gpu:a100:1
 #SBATCH --partition=a100
-#SBATCH --time=20:00:00
-#SBATCH --job-name=diffusers-vae-job-8-64
+#SBATCH --time=24:00:00
+#SBATCH --job-name=ldm-new-fixed
 #SBATCH --export=NONE
 #SBATCH --mail-user=sandro.sage@fau.de 
 #SBATCH --mail-type=ALL

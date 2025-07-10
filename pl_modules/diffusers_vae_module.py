@@ -1,47 +1,11 @@
 from pl_modules.mri_module import NewMRIModule
 from diffusers.models.autoencoders.vae import Decoder, Encoder
+from diffusers.models.autoencoders import AutoencoderKL
 from torch.nn import L1Loss
 import torch
-from modules.transforms import KspaceUNetSample, norm, unnorm, kspace_to_mri
-from torch import optim, nn
-from typing import Tuple, Literal
-import torch.nn.functional as F
-
-class ZeroPaddingTransform(nn.Module):
-    def __init__(self, target_size: Tuple[int, int]):
-        super().__init__()
-        self.target_size = target_size
-    
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        h, w = input.shape[-2:]  # Assuming (C, H, W) or (B, C, H, W)
-        pad_h = max(0, self.target_size[0] - h)
-        pad_w = max(0, self.target_size[1] - w)
-        pad_top = pad_h // 2
-        pad_bottom = pad_h - pad_top
-        pad_left = pad_w // 2
-        pad_right = pad_w - pad_left
-        # Padding format for torch.nn.functional.pad: (left, right, top, bottom)
-        padding = (pad_left, pad_right, pad_top, pad_bottom)
-        return F.pad(input, padding, mode='constant', value=0)
-        
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(target_size={self.target_size})"
-    
-class AdaptivePoolTransform(nn.Module):
-    def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
-        super().__init__()
-        assert pool_type in ("max", "avg"), "pooling type must either be 'max' or 'avg'"
-        self.output_size = output_size
-        self.pool_type = pool_type
-    
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if self.pool_type == "avg":
-            return F.adaptive_avg_pool2d(input, self.output_size)
-        else:
-            return F.adaptive_max_pool2d(input, self.output_size)
-        
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(output_size={self.output_size}, pool_type={self.pool_type})"
+from modules.transforms import KspaceUNetSample, norm, unnorm, kspace_to_mri, AdaptivePoolTransform
+from modules.losses import LPIPSWithDiscriminator
+from torch import optim
     
 def create_channels(n: int, chans: int = 32):
     blocks = (chans,)
@@ -65,7 +29,6 @@ class Diffusers_VAE(NewMRIModule):
         self.latent_dim = latent_dim
         self.down_layers = down_layers
         self.n_channels = n_channels
-        self.transform = AdaptivePoolTransform((640,368))
 
         self.save_hyperparameters()
         
@@ -104,7 +67,6 @@ class Diffusers_VAE(NewMRIModule):
     def shared_step(self, batch: KspaceUNetSample):
         input = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
-        input = self.transform(input)
         input, mean, std = norm(input)
         output = self(input)
         loss = self.criterion(input,output)
@@ -115,10 +77,9 @@ class Diffusers_VAE(NewMRIModule):
     def training_step(self, batch: KspaceUNetSample, batch_idx):
         loss, output = self.shared_step(batch)
 
-        input_img = kspace_to_mri(batch.full_kspace)
         output_img = kspace_to_mri(output)
 
-        img_loss = self.criterion(input_img, output_img)
+        img_loss = self.criterion(output_img, batch.target)
 
         self.log_dict({
             "train/kspace_l1": loss, 
@@ -127,18 +88,15 @@ class Diffusers_VAE(NewMRIModule):
 
         return {
             "loss": loss,
-            "undersampled_mri_image": input_img,
-            "reconstructed_mri_image": output_img, 
-            "full_mri_image": batch.target
+            "reconstructions": output_img, 
         }
 
     def validation_step(self, batch:KspaceUNetSample, batch_idx):
         loss, output = self.shared_step(batch)
-    
-        input_img = kspace_to_mri(batch.full_kspace)
+
         output_img = kspace_to_mri(output)
 
-        img_loss = self.criterion(input_img, output_img)
+        img_loss = self.criterion(batch.target, output_img)
 
         self.log_dict({
             "val/kspace_l1": loss, 
@@ -146,12 +104,153 @@ class Diffusers_VAE(NewMRIModule):
         }, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True, batch_size=batch.full_kspace.shape[0])
         
         return {
-            "loss": loss,
+            "reconstructions": output_img, 
+        }
+    
+    def configure_optimizers(self):
+        return optim.Adam(list(self.encoder.parameters())+ list(self.decoder.parameters()), lr=1e-4)
+
+
+class Diffusers_KL(NewMRIModule):
+    def __init__(self,
+                in_channels: int = 2, 
+                out_channels: int = 2, 
+                latent_dim: int = 16,
+                down_layers: int = 4,
+                n_channels: int = 32,
+                sample_posterior: bool = False,    
+                num_log_images: int = 32):
+        super().__init__(num_log_images)
+
+        self.automatic_optimization = False
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.latent_dim = latent_dim
+        self.down_layers = down_layers
+        self.n_channels = n_channels
+        self.sample_posterior = sample_posterior
+
+        self.save_hyperparameters()
+
+        block_out_channels = create_channels(self.down_layers, chans=self.n_channels)
+        down_blocks = self.down_layers*("DownEncoderBlock2D", )
+        up_blocks = self.down_layers* ("UpDecoderBlock2D", )
+
+        self.loss = LPIPSWithDiscriminator(disc_start=5000, disc_in_channels=self.in_channels)
+        self.criterion = L1Loss()
+
+        self.model = AutoencoderKL(
+            in_channels=self.in_channels, 
+            out_channels=self.out_channels, 
+            down_block_types=down_blocks, 
+            up_block_types=up_blocks, 
+            block_out_channels=block_out_channels, 
+            latent_channels=self.latent_dim)
+        
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.model.encode(x).latent_dist # posterior: DiagonalGaussianDistribution
+    
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.model.decode(z).sample
+    
+    def forward(self, x: torch.Tensor, sample_posterior: bool = False) -> torch.Tensor:
+        return self.model.forward(x, sample_posterior).sample
+    
+    def __forward(self, x: torch.Tensor):
+        posterior = self.encode(x)
+        if self.sample_posterior:
+            z = posterior.sample()
+        else:
+            z = posterior.mode()
+        dec = self.decode(z)
+        return dec, posterior
+    
+    def training_step(self, batch: KspaceUNetSample, batch_idx):
+        # 1. Preprocessing of batch
+        input = batch.full_kspace
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = norm(input)
+
+        # 2. Call model forward
+        output, posterior = self.__forward(input)
+
+        # 3. Loss calculation
+        opt_0, opt_1 = self.optimizers()
+
+        # 3.1 Loss of generator
+        aeloss, log_dict_ae = self.loss(input, output, posterior, 0, self.global_step, mean, std, 
+                                        last_layer=self.__get_last_layer(), split="train")
+        
+        opt_0.zero_grad()
+        self.manual_backward(aeloss)
+        opt_0.step()
+
+        # 3.2 Loss the discriminator
+        discloss, log_dict_disc = self.loss(input, output, posterior, 1, self.global_step, mean, std,
+                                            last_layer=self.__get_last_layer(), split="train")
+
+        opt_1.zero_grad()
+        self.manual_backward(discloss)
+        opt_1.step()
+
+        self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=input.shape[0], sync_dist=True)
+        self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=False, batch_size=input.shape[0], sync_dist=True)
+
+        self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=input.shape[0], sync_dist=True)
+        self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=False, batch_size=input.shape[0], sync_dist=True)
+
+        input_img = kspace_to_mri(batch.full_kspace)
+        output = unnorm(output, mean, std).permute(0, 2, 3, 1).contiguous()
+        output_img = kspace_to_mri(output)
+
+        img_loss = self.criterion(input_img, output_img)
+        self.log("train/img_l1", img_loss, on_epoch=True, on_step=True, sync_dist=True, batch_size=input.shape[0])
+
+        return {
             "undersampled_mri_image": input_img,
             "reconstructed_mri_image": output_img, 
             "full_mri_image": batch.target
         }
     
+    def validation_step(self, batch: KspaceUNetSample, batch_idx):
+        # 1. Preprocessing of batch
+        input = batch.full_kspace
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = norm(input)
+
+        # 2. Call model forward
+        output, posterior = self.__forward(input)
+
+        # 3.1 Loss of generator
+        aeloss, log_dict_ae = self.loss(input, output, posterior, 0, self.global_step, mean, std, 
+                                        last_layer=self.__get_last_layer(), split="val")
+
+        # 3.2 Loss the discriminator
+        discloss, log_dict_disc = self.loss(input, output, posterior, 1, self.global_step, mean, std,
+                                            last_layer=self.__get_last_layer(), split="val")
+        
+        self.log("val/rec_loss", log_dict_ae["val/rec_loss"])
+        self.log_dict(log_dict_ae)
+        self.log_dict(log_dict_disc)
+
+        return {
+            "val_loss"
+        }
     def configure_optimizers(self):
-        return optim.Adam(list(self.encoder.parameters())+ list(self.decoder.parameters()), lr=1e-4)
+        lr = 1e-5 # LDPM Paper reference
+
+        opt_ae = torch.optim.Adam(
+            list(self.model.parameters()),
+            lr=lr, 
+            betas=(0.5, 0.9))
+        
+        opt_disc = torch.optim.Adam(
+            self.loss.discriminator.parameters(),
+            lr=lr, betas=(0.5, 0.9))
+        
+        return [opt_ae, opt_disc], []
     
+    def __get_last_layer(self):
+        return self.model.decoder.conv_out.weight
+
