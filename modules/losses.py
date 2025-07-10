@@ -105,8 +105,8 @@ class LPIPSWithDiscriminator(nn.Module):
             # TODO: here we have to calculate the perceptual loss on the image
             inputs_unnormed = unnorm(inputs, norm_mean, norm_std).permute(0, 2, 3, 1).contiguous()
             reconstructions_unnormed = unnorm(reconstructions, norm_mean, norm_std).permute(0, 2, 3, 1).contiguous()
-            inputs_img = kspace_to_mri(inputs_unnormed)
-            reconstructions_img = kspace_to_mri(reconstructions_unnormed)
+            inputs_img = kspace_to_mri(inputs_unnormed).unsqueeze(1)
+            reconstructions_img = kspace_to_mri(reconstructions_unnormed).unsqueeze(1)
             inputs_img = inputs_img.repeat(1, 3, 1, 1) 
             reconstructions_img = reconstructions_img.repeat(1, 3, 1, 1)
             p_loss = self.perceptual_loss(inputs_img.contiguous(), reconstructions_img.contiguous())

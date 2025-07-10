@@ -1,16 +1,16 @@
 model:
-  target: pl_modules.diffusers_vae_module.Diffusers_VAE
+  target: pl_modules.diffusers_vae_module.KspaceAutoencoder
   params:
     in_channels: 2
     out_channels: 2
     latent_dim: 16
-    down_layers: 4
+    n_mult: [2, 4, 8]
     n_channels: 32   
     num_log_images: 32
 
 
 data:
-  batch_size: 4
+  batch_size: 6
   n_workers: 4
   data_path: /home/janus/iwbi-cip-datasets/shared/fastMRI/knee
   challenge: singlecoil
@@ -26,5 +26,5 @@ trainer:
   max_epochs: 100
   checkpoint:
     top_k: 2
-    monitor: val/kspace_l1_epoch
-    mode: min
+    monitor: val/ssim_epoch
+    mode: max

@@ -9,23 +9,17 @@ import torch
 from fastmri.pl_modules import FastMriDataModule
 from fastmri.data.subsample import create_mask_for_mask_type
 from omegaconf import OmegaConf
-import importlib
-from pl_modules.diffusers_vae_module import Diffusers_VAE
-def instantiate_from_config(config):
-    if not "target" in config:
-        raise KeyError("Expected key `target` to instantiate.")
-    return get_obj_from_str(config["target"])(**config.get("params", dict()))
+from modules.utils import instantiate_from_config
+from argparse import ArgumentParser
 
-def get_obj_from_str(string, reload=False):
-    module, cls = string.rsplit(".", 1)
-    if reload:
-        module_imp = importlib.import_module(module)
-        importlib.reload(module_imp)
-    return getattr(importlib.import_module(module, package=None), cls)
+def cli():
+    parser = ArgumentParser()
+    parser.add_argument("--config", type=str, help="Path to config file")
+    return parser.parse_args()
 
-def main():
+def main(args):
     torch.set_float32_matmul_precision('high')
-    config = OmegaConf.load("config.yaml")
+    config = OmegaConf.load(args.config)
     model_cfg = config.model
     data_cfg = config.data
     trainer_cfg = config.trainer
@@ -82,5 +76,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = cli()
+    main(args)
     
