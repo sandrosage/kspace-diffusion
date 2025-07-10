@@ -12,4 +12,4 @@ export http_proxy=http://proxy:80
 export https_proxy=http://proxy:80
 module load python/3.12-conda
 conda activate kdiff
-python reconstruct.py
+python train_ldm.py
