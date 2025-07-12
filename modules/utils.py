@@ -1,37 +1,19 @@
-import torch
+import importlib
 
-from fastmri import ifft2c as ifft2c_fastmri
-def ifft2c(kspace_data):
-    """
-    Applies centered inverse 2D FFT to the k-space data.
+def instantiate_from_config(config):
+    if not "target" in config:
+        raise KeyError("Expected key `target` to instantiate.")
+    return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
-    Args:
-        kspace_data (np.ndarray): Complex-valued k-space data with shape
-                                  (num_coils, height, width).
+def get_obj_from_str(string, reload=False):
+    module, cls = string.rsplit(".", 1)
+    if reload:
+        module_imp = importlib.import_module(module)
+        importlib.reload(module_imp)
+    return getattr(importlib.import_module(module, package=None), cls)
 
-    Returns:
-        np.ndarray: Complex-valued image data after IFFT.
-    """
-    # Perform 2D inverse FFT with FFT shift
-    return torch.fft.ifftshift(torch.fft.ifft2(torch.fft.fftshift(kspace_data, dim=(-2, -1))), dim=(-2, -1))
-
-
-
-def kspace_to_image(kspace_data):
-  """
-  Converts multi-coil k-space data to image domain.
-
-  Args:
-      kspace_data (np.ndarray): Complex-valued k-space data with shape
-                                (num_coils, height, width).
-
-  Returns:
-      np.ndarray: Image domain data with shape (height, width).
-  """
-  # Apply inverse FFT to each coil
-  coil_images = torch.stack([ifft2c(kspace_data[i]) for i in range(kspace_data.shape[0])], dim=0)
-
-  # Combine coil images
-  # combined_image = combine_coil_images(coil_images)
-
-  return coil_images.real
+def create_channels(n_mult: list[int], chans: int = 32):
+    blocks = (chans,)
+    for n in n_mult:
+        blocks += (n*chans,)
+    return blocks

@@ -36,7 +36,7 @@ if __name__ == "__main__":
     )
 
     dm = LDMLatentDataModule(
-    data_path=Path("latent_data/latent_data/"),
+    data_path=Path("/home/atuin/b180dc/b180dc46/Diffusers_VAE_16_4/latent_data"),
     challenge="singlecoil",
     batch_size=config["batch_size"],
     num_workers=4, 

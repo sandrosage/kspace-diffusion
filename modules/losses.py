@@ -5,6 +5,45 @@ from torchvision import models
 from collections import namedtuple
 from taming.util import get_ckpt_path
 from modules.transforms import unnorm, kspace_to_mri
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
+import numpy as np
+from typing import Optional
+
+def psnr(gt: np.ndarray, pred: np.ndarray, maxval: Optional[float] = None
+) -> np.ndarray:
+    """Compute Structural Similarity Index Metric (SSIM)"""
+    if not gt.ndim == 3:
+        raise ValueError("Unexpected number of dimensions in ground truth.")
+    if not gt.ndim == pred.ndim:
+        raise ValueError("Ground truth dimensions does not match pred.")
+
+    psnr = np.array([0])
+    for slice_num in range(gt.shape[0]):
+        data_range = gt[slice_num].max() if maxval is None else maxval[slice_num]
+        psnr = psnr + peak_signal_noise_ratio(
+            gt[slice_num], pred[slice_num], data_range=data_range
+        )
+
+    return psnr / gt.shape[0]
+
+def ssim(
+    gt: np.ndarray, pred: np.ndarray, maxval: Optional[float] = None
+) -> np.ndarray:
+    """Compute Structural Similarity Index Metric (SSIM)"""
+    if not gt.ndim == 3:
+        raise ValueError("Unexpected number of dimensions in ground truth.")
+    if not gt.ndim == pred.ndim:
+        raise ValueError("Ground truth dimensions does not match pred.")
+
+    ssim = np.array([0])
+    for slice_num in range(gt.shape[0]):
+        data_range = gt[slice_num].max() if maxval is None else maxval[slice_num]
+        ssim = ssim + structural_similarity(
+            gt[slice_num], pred[slice_num], data_range=data_range
+        )
+
+    return ssim / gt.shape[0]
+
 
 
 class ELBOLoss(nn.Module):
@@ -66,8 +105,8 @@ class LPIPSWithDiscriminator(nn.Module):
             # TODO: here we have to calculate the perceptual loss on the image
             inputs_unnormed = unnorm(inputs, norm_mean, norm_std).permute(0, 2, 3, 1).contiguous()
             reconstructions_unnormed = unnorm(reconstructions, norm_mean, norm_std).permute(0, 2, 3, 1).contiguous()
-            inputs_img = kspace_to_mri(inputs_unnormed)
-            reconstructions_img = kspace_to_mri(reconstructions_unnormed)
+            inputs_img = kspace_to_mri(inputs_unnormed).unsqueeze(1)
+            reconstructions_img = kspace_to_mri(reconstructions_unnormed).unsqueeze(1)
             inputs_img = inputs_img.repeat(1, 3, 1, 1) 
             reconstructions_img = reconstructions_img.repeat(1, 3, 1, 1)
             p_loss = self.perceptual_loss(inputs_img.contiguous(), reconstructions_img.contiguous())
