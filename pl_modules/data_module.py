@@ -48,6 +48,7 @@ class LatentDataset(Dataset):
         with h5py.File(fname, "r") as hf:
             full_latent_tensor = hf["full_latent_tensor"][dataslice]
             masked_latent_tensor = hf["masked_latent_tensor"][dataslice]
+            mean_full, std_full = hf["mean_full"][dataslice], hf["std_full"][dataslice]
         
         if self.transform is not None:
             full_latent_tensor = self.transform(full_latent_tensor)
@@ -58,7 +59,9 @@ class LatentDataset(Dataset):
             masked_latent_tensor=masked_latent_tensor,
             metadata=metadata, 
             fname=fname.name, 
-            slice_num=dataslice)
+            slice_num=dataslice,
+            mean_full=mean_full,
+            std_full=std_full)
 
         
 class LDMLatentDataModule(pl.LightningDataModule):

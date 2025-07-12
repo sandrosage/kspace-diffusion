@@ -6,6 +6,7 @@ import h5py
 from fastmri.data.subsample import create_mask_for_mask_type
 import os
 import torch
+from modules.transforms import norm, unnorm
 
 partition = "test_v2"
 path = "/home/atuin/b180dc/b180dc46/Diffusers_VAE_16_4/latent_data/" + partition + "/"
@@ -36,6 +37,8 @@ current_fname = next(iter(dl)).fname[0]
 hf = h5py.File(path + current_fname, "w")
 full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 80, 46), maxshape= (None, 16, 80, 100), dtype="float32")
 masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 80, 46), maxshape= (None, 16, 80, 100), dtype="float32")
+masked_ds = hf.create_dataset("mean_full", shape=(0, 16, 80, 46), maxshape= (None, 16, 80, 100), dtype="float32")
+masked_ds = hf.create_dataset("masked_latent_ten", shape=(0, 16, 80, 46), maxshape= (None, 16, 80, 100), dtype="float32")
 for i, batch in enumerate(dl):
     fname = batch.fname[0]
     slice_num = batch.slice_num.item()
@@ -50,12 +53,13 @@ for i, batch in enumerate(dl):
         current_fname = fname
 
     full_kspace = batch.full_kspace.permute(0,3,1,2).contiguous()
-    full_latent_tensor = model.encode(full_kspace.cuda())[0].cpu()
+    full_kspace, mean_full, std_full = norm(full_kspace)
+    full_latent_tensor = model.encode(full_kspace.cuda()).cpu()
     full_ds.resize((slice_num + 1, *full_latent_tensor.shape))
     full_ds[slice_num] = full_latent_tensor.detach().numpy()
-
     masked_kspace = batch.masked_kspace.permute(0,3,1,2).contiguous()
-    masked_latent_tensor = model.encode(masked_kspace.cuda())[0].cpu()
+    masked_kspace, mean_masked, std_masked = norm(masked_kspace)
+    masked_latent_tensor = model.encode(masked_kspace.cuda()).cpu()
     masked_ds.resize((slice_num + 1, *masked_latent_tensor.shape))
     masked_ds[slice_num] = masked_latent_tensor.detach().numpy()
     hf.attrs["num_low_frequencies"] = num_low_frequencies

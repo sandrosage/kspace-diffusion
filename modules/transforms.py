@@ -164,6 +164,8 @@ class LDMSample(NamedTuple):
     metadata: dict 
     fname: str 
     slice_num: int
+    mean_full: torch.Tensor
+    std_full: torch.Tensor
     
 class KspaceLDMWithMaskInfoSample(NamedTuple):
     """

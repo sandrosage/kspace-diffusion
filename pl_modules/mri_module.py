@@ -7,6 +7,7 @@ from torchmetrics.image import PeakSignalNoiseRatio
 from matplotlib import colors
 import fastmri.data.transforms as T
 from modules.transforms import KspaceUNetSample
+import torch
 
 np.random.seed(111)
 
@@ -160,21 +161,50 @@ class NewMRIModule(pl.LightningModule):
             full_mri_image = outputs["full_mri_image"].squeeze(0).detach().cpu().numpy()
             self.log_image(batch.fname, batch_idx, batch.slice_num, undersampled_mri_image, reconstructed_mri_image, full_mri_image, "train")
     
-    def on_validation_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx, dataloader_idx = 0):
-        self.calculate_metrics(batch, outputs, "val")
+    def on_validation_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx):
 
+        for k in (
+            "input",
+            "output",
+            "loss"
+        ):
+            if k not in outputs.keys():
+                raise RuntimeError(
+                    f"Expected key {k} in dict returned by validation_step."
+                )
+            
+        if outputs["input"].ndim == 2:
+            outputs["input"] = outputs["input"].unsqueeze(0)
+        elif outputs["input"].ndim != 3:
+            raise RuntimeError("Unexpected output size from validation_step.")
+        
+        if outputs["output"].ndim == 2:
+            outputs["output"] = outputs["output"].unsqueeze(0)
+        elif outputs["output"].ndim != 3:
+            raise RuntimeError("Unexpected output size from validation_step.")
+    
         if self.val_log_indices is None:
-            self.val_log_indices = list(
+            self.val_log_indices = list(1) + list(
                 np.random.permutation(len(self.trainer.val_dataloaders))[
                     : self.num_log_images - 1
                 ]
             )
-        self.val_log_indices.insert(0, 1)
         
         if batch_idx in self.val_log_indices:
-            undersampled_mri_image = outputs["undersampled_mri_image"].squeeze(0).detach().cpu().numpy()
-            reconstructed_mri_image = outputs["reconstructed_mri_image"].squeeze(0).detach().cpu().numpy()
-            full_mri_image = outputs["full_mri_image"].squeeze(0).detach().cpu().numpy()
+            input = outputs["input"]
+            output = outputs["output"]
+            target = batch.target
+            print(input.shape, output.shape, target.shape)
+
+            error = torch.abs(target - output)
+            output = output / output.max()
+            target = target / target.max()
+            error = error / error.max()
+
+
+            undersampled_mri_image = outputs["input"].squeeze(0)
+            reconstructed_mri_image = outputs["output"].squeeze(0).detach().cpu().numpy()
+            full_mri_image = outputs["target"].squeeze(0).detach().cpu().numpy()
             self.log_image(batch.fname, batch_idx, batch.slice_num, undersampled_mri_image, reconstructed_mri_image, full_mri_image, "val")
 
     
