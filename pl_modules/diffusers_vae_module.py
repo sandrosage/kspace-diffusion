@@ -149,13 +149,15 @@ class KspaceAutoencoderKL(MRIModule):
             layers_per_block=2)
         
         print("Channels: ", block_out_channels)
-        if self.sample_posterior:
-            print("Z shape: ", self.encode(test_input).sample().shape)
-        else:
-            print("Z shape: ", self.encode(test_input).mode().shape)
+        print("Z shape: ", self.encode(test_input)[0].shape)
         
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model.encode(x).latent_dist # posterior: DiagonalGaussianDistribution
+        posterior = self.model.encode(x).latent_dist # posterior: DiagonalGaussianDistribution
+        if self.sample_posterior:
+            z = posterior.sample()
+        else:
+            z = posterior.mode()
+        return z, posterior
     
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
@@ -165,11 +167,7 @@ class KspaceAutoencoderKL(MRIModule):
         return self.model.forward(x, sample_posterior).sample
     
     def __forward(self, x: torch.Tensor):
-        posterior = self.encode(x)
-        if self.sample_posterior:
-            z = posterior.sample()
-        else:
-            z = posterior.mode()
+        z, posterior = self.encode(x)
         dec = self.decode(z)
         return dec, posterior
     

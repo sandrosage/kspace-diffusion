@@ -7,7 +7,11 @@ from datetime import datetime
 from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from pl_modules.ldm_module import LDM
+from argparse import ArgumentParser
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--path", type=str, help="Path to latent dataset")
+    args = parser.parse_args()
     config = {
         "epochs": 100,
         "in_channels": 16,
@@ -36,7 +40,7 @@ if __name__ == "__main__":
     )
 
     dm = LDMLatentDataModule(
-    data_path=Path("/home/atuin/b180dc/b180dc46/Diffusers_VAE_16_4/latent_data"),
+    data_path=Path(args.path),
     challenge="singlecoil",
     batch_size=config["batch_size"],
     num_workers=4, 

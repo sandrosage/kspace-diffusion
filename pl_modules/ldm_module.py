@@ -39,8 +39,8 @@ class LDM(pl.LightningModule):
 
     def training_step(self, batch: LDMSample, batch_idx):
         input = batch.full_latent_tensor
-        input = F.pad(input, (0, 2))
         z, mean, std = norm(input)
+        z = F.pad(z, (0, 2))
         z_diffused, steps, noise = self.diffusion(z)
         residual = self.model(z_diffused, steps).sample
         loss = torch.nn.functional.mse_loss(residual, noise)
@@ -52,8 +52,8 @@ class LDM(pl.LightningModule):
     
     def validation_step(self, batch: LDMSample, batch_idx):
         input = batch.full_latent_tensor
-        input = F.pad(input, (0, 2))
         z, mean, std = norm(input)
+        z = F.pad(z, (0, 2))
         z_diffused, steps, noise = self.diffusion(z)
         residual = self.model(z_diffused, steps).sample
         loss = torch.nn.functional.mse_loss(residual, noise)

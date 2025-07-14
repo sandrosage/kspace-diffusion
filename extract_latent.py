@@ -1,4 +1,4 @@
-from pl_modules.diffusers_vae_module import Diffusers_VAE
+from pl_modules.diffusers_vae_module import KspaceAutoencoder, KspaceAutoencoderKL
 from modules.transforms import KspaceUNetDataTransform, norm
 from pathlib import Path
 from fastmri.data import SliceDataset
@@ -7,9 +7,12 @@ from fastmri.data.subsample import create_mask_for_mask_type
 import os
 import torch
 
-partition = "test_v2"
+partition = "val"
 challenge = "singlecoil"
-path = "/home/atuin/b180dc/b180dc46/Diffusers_VAE_16_4/latent_data/" + f"{challenge}_{partition}/"
+model_type = "KspaceAutoencoder"
+id = "i6nac0hp"
+ckpt_path = "KspaceAutoencoder-epoch=11.ckpt"
+path = f"/home/atuin/b180dc/b180dc46/{model_type}/{id}/" + f"{challenge}_{partition}/"
 if not os.path.exists(path):
     os.makedirs(path)
 config = {
@@ -29,9 +32,9 @@ ds = SliceDataset(
     use_dataset_cache=True
 )
 
-model = Diffusers_VAE.load_from_checkpoint("Diffusers_VAE/u80szjw0/checkpoints/Diffusers_VAE_-epoch=12.ckpt", down_layers=4)
+model = KspaceAutoencoder.load_from_checkpoint(f"{model_type}/{id}/checkpoints/{ckpt_path}")
 
-print("Starting...")
+print(f"Starting latent extraction of {model_type}_{id}...")
 dl = torch.utils.data.DataLoader(ds)
 current_fname = next(iter(dl)).fname[0]
 hf = h5py.File(path + current_fname, "w")
@@ -63,6 +66,8 @@ for i, batch in enumerate(dl):
     full_kspace = batch.full_kspace.permute(0,3,1,2).contiguous()
     full_kspace, mean_full, std_full = norm(full_kspace)
     full_latent_tensor = model.encode(full_kspace.cuda())[0].cpu()
+    if full_latent_tensor.ndim > 3:
+        full_latent_tensor = full_latent_tensor.squeeze(0)
     full_ds.resize((slice_num + 1, *full_latent_tensor.shape))
     full_ds[slice_num] = full_latent_tensor.detach().numpy()
     mean_full_ds.resize((slice_num + 1, 2, 1, 1))
@@ -73,6 +78,8 @@ for i, batch in enumerate(dl):
     masked_kspace = batch.masked_kspace.permute(0,3,1,2).contiguous()
     masked_kspace, mean_masked, std_masked = norm(masked_kspace)
     masked_latent_tensor = model.encode(masked_kspace.cuda())[0].cpu()
+    if masked_latent_tensor.ndim > 3:
+        masked_latent_tensor = masked_latent_tensor.squeeze(0)
     masked_ds.resize((slice_num + 1, *masked_latent_tensor.shape))
     masked_ds[slice_num] = masked_latent_tensor.detach().numpy()
     mean_masked_ds.resize((slice_num + 1, 2, 1, 1))
