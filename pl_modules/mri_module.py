@@ -60,6 +60,26 @@ class MRIModule(pl.LightningModule):
 
         self.calculate_metrics(reconstructions, targets, max_vals, "val")
 
+        for k in (
+            "input",
+            "output",
+            "loss"
+        ):
+            if k not in outputs.keys():
+                raise RuntimeError(
+                    f"Expected key {k} in dict returned by validation_step."
+                )
+            
+        if outputs["input"].ndim == 2:
+            outputs["input"] = outputs["input"].unsqueeze(0)
+        elif outputs["input"].ndim != 3:
+            raise RuntimeError("Unexpected output size from validation_step.")
+        
+        if outputs["output"].ndim == 2:
+            outputs["output"] = outputs["output"].unsqueeze(0)
+        elif outputs["output"].ndim != 3:
+            raise RuntimeError("Unexpected output size from validation_step.")
+    
         if self.val_log_indices is None:
             self.val_log_indices = list([1]) + list(
                 np.random.permutation(len(self.trainer.val_dataloaders))[
