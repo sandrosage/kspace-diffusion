@@ -48,6 +48,7 @@ class LatentDataset(Dataset):
         with h5py.File(fname, "r") as hf:
             full_latent_tensor = hf["full_latent_tensor"][dataslice]
             masked_latent_tensor = hf["masked_latent_tensor"][dataslice]
+            target = hf["target"][dataslice]
             mean_full, std_full = hf["mean_full"][dataslice], hf["std_full"][dataslice]
         
         if self.transform is not None:
@@ -57,6 +58,7 @@ class LatentDataset(Dataset):
         return LDMSample(
             full_latent_tensor=full_latent_tensor, 
             masked_latent_tensor=masked_latent_tensor,
+            target=target,
             metadata=metadata, 
             fname=fname.name, 
             slice_num=dataslice,

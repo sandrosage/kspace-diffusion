@@ -1,5 +1,6 @@
 model:
   target: pl_modules.diffusers_vae_module.KspaceAutoencoder
+  ckpt_path: 
   params:
     in_channels: 2
     out_channels: 2

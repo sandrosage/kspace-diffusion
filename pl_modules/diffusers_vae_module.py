@@ -7,6 +7,111 @@ from modules.transforms import KspaceUNetSample, norm, unnorm, kspace_to_mri
 from modules.losses import LPIPSWithDiscriminator
 from torch import optim
 from modules.utils import create_channels
+from fastmri.losses import SSIMLoss
+class WeightedSSIMKspaceAutoencoder(MRIModule):
+    def __init__(self, 
+                 in_channels: int = 2, 
+                 out_channels: int = 2, 
+                 latent_dim: int = 16,
+                 n_mult: list[int] = [2, 4, 8, 16],
+                 n_channels: int = 32,   
+                 num_log_images = 32):
+        super().__init__(num_log_images)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.latent_dim = latent_dim
+        self.n_mult = n_mult
+        self.down_layers = len(n_mult) + 1
+        self.n_channels = n_channels
+
+        self.save_hyperparameters()
+        test_input = torch.randn(1, 2, 640, 368)
+        down_block_out_channels = create_channels(self.n_mult, chans=self.n_channels)
+        up_block_out_channels = create_channels(self.n_mult, chans=self.n_channels)[::-1]
+        up_block_out_channels = down_block_out_channels[::-1]
+        down_blocks = self.down_layers*("DownEncoderBlock2D", )
+        up_blocks = self.down_layers* ("UpDecoderBlock2D", )
+
+        self.encoder = Encoder(
+            in_channels=self.in_channels, 
+            out_channels=self.latent_dim, 
+            down_block_types=down_blocks, 
+            block_out_channels=down_block_out_channels,
+            double_z=False)
+        
+        self.decoder = Decoder(
+            in_channels=self.latent_dim,
+            out_channels=self.out_channels,
+            up_block_types=up_blocks,
+            block_out_channels=up_block_out_channels
+        )
+
+        self.criterion = L1Loss()
+        self.criterion_2 = SSIMLoss()
+
+        print("Channels: ", down_block_out_channels)
+        print("Z shape: ", self.encode(test_input).shape)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.encoder(x)
+        return self.decoder(z)
+    
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.encoder(x)
+    
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+    
+    def shared_step(self, batch: KspaceUNetSample):
+        input = batch.full_kspace
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = norm(input)
+        output = self(input)
+        loss = self.criterion(input,output)
+        output = unnorm(output, mean, std)
+        output = output.permute(0,2,3,1).contiguous()
+        return loss, output
+    
+    def training_step(self, batch: KspaceUNetSample, batch_idx):
+        loss, output = self.shared_step(batch)
+
+        output_img = kspace_to_mri(output)
+
+        img_loss = self.criterion(output_img, batch.target)
+
+        self.log_dict({
+            "train/kspace_l1": loss, 
+            "train/img_l1": img_loss
+        }, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True, batch_size=batch.full_kspace.shape[0])
+
+        if self.trainer.current_epoch > 0:
+            loss += 0.5*self.criterion_2(output_img, batch.target, batch.max_value)
+
+        self.log("train/total_loss", loss,  on_epoch=True, on_step=True, sync_dist=True, prog_bar=True, batch_size=batch.full_kspace.shape[0])
+        return {
+            "loss": loss,
+            "reconstructions": output_img, 
+        }
+
+    def validation_step(self, batch:KspaceUNetSample, batch_idx):
+        loss, output = self.shared_step(batch)
+
+        output_img = kspace_to_mri(output)
+
+        img_loss = self.criterion(batch.target, output_img)
+
+        self.log_dict({
+            "val/kspace_l1": loss, 
+            "val/img_l1": img_loss
+        }, on_epoch=True, on_step=True, sync_dist=True, prog_bar=True, batch_size=batch.full_kspace.shape[0])
+        
+        return {
+            "reconstructions": output_img, 
+        }
+    
+    def configure_optimizers(self):
+        return optim.Adam(list(self.encoder.parameters())+ list(self.decoder.parameters()), lr=1e-4)
 
 class KspaceAutoencoder(MRIModule):
     def __init__(self, 

@@ -161,6 +161,7 @@ class KspaceLDMSample(NamedTuple):
 class LDMSample(NamedTuple):
     full_latent_tensor: torch.Tensor
     masked_latent_tensor: torch.Tensor
+    target: torch.Tensor
     metadata: dict 
     fname: str 
     slice_num: int

@@ -8,6 +8,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from pl_modules.ldm_module import LDM
 from argparse import ArgumentParser
+from pl_modules.diffusers_vae_module import KspaceAutoencoder, KspaceAutoencoderKL
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--path", type=str, help="Path to latent dataset")
@@ -21,11 +22,15 @@ if __name__ == "__main__":
 
     torch.set_float32_matmul_precision('high')
 
-    model_name = "LDM"
+    model_name = "LDM_new_one"
 
     print(model_name)
-    
-    model = LDM(in_channels=config["in_channels"], out_channels=config["out_channels"])
+    model_type = "KspaceAutoencoder"
+    id = "i6nac0hp"
+    ckpt_path = "KspaceAutoencoder-epoch=11.ckpt"
+    first_stage = KspaceAutoencoder.load_from_checkpoint(f"{model_type}/{id}/checkpoints/{ckpt_path}")
+
+    model = LDM(in_channels=config["in_channels"], out_channels=config["out_channels"], first_stage=first_stage)
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
