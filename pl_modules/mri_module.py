@@ -2,11 +2,14 @@ import pytorch_lightning as pl
 import numpy as np
 import wandb
 import matplotlib.pyplot as plt
-from modules.transforms import KspaceUNetSample
+from modules.transforms import KspaceUNetSample, normalize_to_minus_one_one
 from fastmri.evaluate import nmse
-from modules.losses import ssim, psnr
+from modules.losses import ssim, psnr, LPIPS
+from torch.nn.functional import l1_loss
 import torch
 import random
+from fastmri.losses import SSIMLoss
+
 
 class MRIModule(pl.LightningModule):
     def __init__(self, num_log_images: int = 32):
@@ -16,7 +19,9 @@ class MRIModule(pl.LightningModule):
         self.val_log_indices = None
         self.train_log_indices = None
 
-    
+        self.ssim_loss = SSIMLoss()
+        self.perc_loss = LPIPS().eval()
+
     def on_train_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx):
 
         for k in ("reconstructions",):
@@ -57,28 +62,9 @@ class MRIModule(pl.LightningModule):
         reconstructions = outputs["reconstructions"]
         targets = batch.target
         max_vals = batch.max_value
+    
 
         self.calculate_metrics(reconstructions, targets, max_vals, "val")
-
-        for k in (
-            "input",
-            "output",
-            "loss"
-        ):
-            if k not in outputs.keys():
-                raise RuntimeError(
-                    f"Expected key {k} in dict returned by validation_step."
-                )
-            
-        if outputs["input"].ndim == 2:
-            outputs["input"] = outputs["input"].unsqueeze(0)
-        elif outputs["input"].ndim != 3:
-            raise RuntimeError("Unexpected output size from validation_step.")
-        
-        if outputs["output"].ndim == 2:
-            outputs["output"] = outputs["output"].unsqueeze(0)
-        elif outputs["output"].ndim != 3:
-            raise RuntimeError("Unexpected output size from validation_step.")
     
         if self.val_log_indices is None:
             self.val_log_indices = list([1]) + list(
@@ -134,14 +120,39 @@ class MRIModule(pl.LightningModule):
         plt.close()
     
     def calculate_metrics(self, reconstructions: torch.Tensor, targets: torch.Tensor, max_vals: torch.Tensor, flag:str):
-        targets = targets.cpu().numpy()
-        reconstructions = reconstructions.cpu().numpy()
+        # reconstructions = reconstructions.contiguous()
+        # targets = targets.contiguous()
+        # mse = self.MSE(reconstructions, targets)
+        # psnr = self.PSNR(reconstructions, targets)
+        # ssim = torch.tensor(1.0) - self.SSIM(reconstructions, targets, max_vals)
+        # self.log(f"{flag}/MSE", mse, on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        # self.log(f"{flag}PSNR", psnr, on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        # self.log(f"{flag}SSIM", ssim, on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        
+        ssim_loss = self.ssim_loss(reconstructions.unsqueeze(1), targets.unsqueeze(1), max_vals)
+        self.log(f"{flag}/SSIM", 1 - ssim_loss, on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        targets = targets.detach().cpu().numpy()
+        reconstructions = reconstructions.detach().cpu().numpy()
         max_vals = max_vals.cpu().numpy()
-        SSIM = torch.Tensor(ssim(targets, reconstructions, max_vals))
-        PSNR = torch.Tensor(psnr(targets, reconstructions, max_vals))
-        NMSE = torch.Tensor(nmse(targets, reconstructions))
+        SSIM = torch.Tensor(ssim(targets, reconstructions, max_vals)).to(self.device)
+        PSNR = torch.Tensor(psnr(targets, reconstructions, max_vals)).to(self.device)
+        NMSE = torch.Tensor(nmse(targets, reconstructions)).to(self.device)
         self.log_dict({
             f"{flag}/ssim": SSIM,
             f"{flag}/psnr": PSNR,
             f"{flag}/nmse": NMSE,
         }, on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+
+    def on_test_batch_end(self, outputs, batch: KspaceUNetSample, batch_idx):
+        for k in ("reconstructions", "outputs", "inputs"):
+            if k not in outputs.keys():
+                raise RuntimeError(f"Expected key {k} in dict returned by test_step")
+        
+        reconstructions = outputs["reconstructions"]
+        targets = batch.target
+        max_vals = batch.max_value
+
+        self.log("test/lpips", self.perc_loss(normalize_to_minus_one_one(reconstructions.repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(targets.repeat(1,3,1,1).contiguous())), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.log("test/l1_kspace", l1_loss(outputs["outputs"], outputs["inputs"]), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.log("test/l1_image", l1_loss(reconstructions, targets), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.calculate_metrics(reconstructions, targets, max_vals, "test")

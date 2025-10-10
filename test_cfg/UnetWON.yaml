@@ -1,0 +1,15 @@
+model:
+  target: pl_modules.unet_module.UNet
+  ckpt_path: UNet/77iw30sm/checkpoints/UNet-epoch=79.ckpt
+
+data:
+  batch_size: 1
+  n_workers: 8
+  data_path: /home/janus/iwbi-cip-datasets/shared/fastMRI/knee
+  challenge: singlecoil
+  transform:
+    adapt_pool: True
+  mask_func:
+    type: equispaced_fraction
+    center_fractions: [0.04]
+    accelerations: [8]

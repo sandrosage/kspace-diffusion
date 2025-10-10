@@ -15,22 +15,26 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config = {
         "epochs": 100,
-        "in_channels": 16,
-        "out_channels": 16,
-        "batch_size": 32
+        "ckpt_path": "KspaceAutoencoder-epoch=11.ckpt",
+        # "model_ckpt_path": "LDM_/88aswu02/checkpoints/LDM_-epoch=17.ckpt"
+        "model_ckpt_path": None
     }
 
     torch.set_float32_matmul_precision('high')
 
-    model_name = "LDM_new_one"
+    model_name = "LDM_first_real_try"
 
     print(model_name)
     model_type = "KspaceAutoencoder"
     id = "i6nac0hp"
-    ckpt_path = "KspaceAutoencoder-epoch=11.ckpt"
+    ckpt_path = config["ckpt_path"]
     first_stage = KspaceAutoencoder.load_from_checkpoint(f"{model_type}/{id}/checkpoints/{ckpt_path}")
 
-    model = LDM(in_channels=config["in_channels"], out_channels=config["out_channels"], first_stage=first_stage)
+    if config["model_ckpt_path"] is not None:
+        print("Use model checkpoint...")
+        model = LDM.load_from_checkpoint(config["model_ckpt_path"], first_stage=first_stage)
+    else:
+        model = LDM(in_channels=config["in_channels"], out_channels=config["out_channels"], first_stage=first_stage)
 
     
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
@@ -41,6 +45,7 @@ if __name__ == "__main__":
         save_top_k=2,
         monitor="val/mse_noise_loss_epoch",
         mode="min",
+        save_last=True,
         filename=model_name[:4] + "-{epoch:02d}"
     )
 

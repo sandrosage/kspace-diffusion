@@ -72,7 +72,7 @@ class LDMLatentDataModule(pl.LightningDataModule):
             data_path: Path,
             challenge: str, 
             batch_size: int,
-            num_workers: int,
+            n_workers: int,
             train_transform: Optional[Callable] = None,
             val_transform: Optional[Callable] = None,
             test_transform: Optional[Callable] = None
@@ -82,7 +82,7 @@ class LDMLatentDataModule(pl.LightningDataModule):
         self.data_path = data_path
         self.challenge = challenge
         self.batch_size = batch_size
-        self.num_workers = num_workers
+        self.num_workers = n_workers
         self.train_transform = train_transform
         self.val_transform = val_transform
         self.test_transform = test_transform

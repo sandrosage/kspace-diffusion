@@ -1,0 +1,15 @@
+model:
+  target: pl_modules.diffusers_vae_module.WeightedSSIMKspaceAutoencoderKL
+  ckpt_path: WeightedSSIMKspaceAutoencoderKL/9fkym2v7/checkpoints/WeightedSSIMKspaceAutoencoderKL-epoch=65.ckpt
+
+data:
+  batch_size: 1
+  n_workers: 8
+  data_path: /home/janus/iwbi-cip-datasets/shared/fastMRI/knee
+  challenge: singlecoil
+  transform:
+    adapt_pool: True
+  mask_func:
+    type: equispaced_fraction
+    center_fractions: [0.04]
+    accelerations: [8]

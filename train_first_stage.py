@@ -67,10 +67,11 @@ def main(args):
         save_top_k=ckpt_config.top_k,
         monitor=ckpt_config.monitor,
         mode=ckpt_config.mode,
+        save_last=True,
         filename=model_name + "-{epoch:02d}"
     )
 
-    trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint], accelerator="gpu")
     trainer.fit(model, dm)
     wandb.finish()
 

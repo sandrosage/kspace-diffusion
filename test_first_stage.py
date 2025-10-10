@@ -4,20 +4,29 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
 from datetime import datetime
-from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from fastmri.pl_modules import FastMriDataModule
 from fastmri.data.subsample import create_mask_for_mask_type
 from omegaconf import OmegaConf
-from modules.utils import instantiate_from_config, get_from_config
+from modules.utils import get_from_config
 from argparse import ArgumentParser
 
-# id: b8c2wp3g
+def extract_between_first_two_slashes(path: str) -> str:
+    """
+    Extracts the substring between the first and second '/' in a given string.
+    
+    Example:
+        "UNet/77iwp3bt/checkpoints/epoch=99-step=6000.ckpt" -> "77iwp3bt"
+    """
+    parts = path.split('/')
+    if len(parts) < 3:
+        raise ValueError("Input string must contain at least two '/' characters")
+    return parts[1]
+
 
 def cli():
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, help="Path to config file")
-    parser.add_argument("--id", type=str, help="WandB run id")
     return parser.parse_args()
 
 def main(args):
@@ -25,14 +34,18 @@ def main(args):
     config = OmegaConf.load(args.config)
     model_cfg = config.model
     data_cfg = config.data
-    trainer_cfg = config.trainer
-    
-    if model_cfg.ckpt_path: 
-        print(f"Use Checkpoint: {model_cfg.ckpt_path}")
-        model = get_from_config(model_cfg)
-        model = model.load_from_checkpoint(model_cfg.ckpt_path)
-    else:
-        model = instantiate_from_config(model_cfg)
+    try:
+        model_cfg.id = extract_between_first_two_slashes(model_cfg.ckpt_path)
+        print("Extracted ID:", model_cfg.id)
+    except ValueError as e:
+        print("Error extracting ID:", e)
+        model_cfg.id = None
+
+    assert model_cfg.ckpt_path is not None, "No checkpoint path provided in the config file."
+
+    print(f"Use Checkpoint: {model_cfg.ckpt_path}")
+    model = get_from_config(model_cfg)
+    model = model.load_from_checkpoint(model_cfg.ckpt_path, strict=False)
 
     mask_func_cfg = data_cfg.mask_func
     mask_func = create_mask_for_mask_type(
@@ -71,27 +84,13 @@ def main(args):
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     
-    if args.id is not None:
-        wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True), id=args.id, resume="must")
-    else:
+    if model_cfg.id is None:
         wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True))
-
-    ckpt_config = trainer_cfg.checkpoint
-    model_checkpoint = ModelCheckpoint(
-        save_top_k=ckpt_config.top_k,
-        monitor=ckpt_config.monitor,
-        mode=ckpt_config.mode,
-        save_last=True,
-        filename=model_name + "-{epoch:02d}"
-    )
-
-    trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint], strategy='ddp_find_unused_parameters_true')
-   
-    if model_cfg.ckpt_path is not None:
-        print(f"Trainer using Checkpoint path: {model_cfg.ckpt_path}")
-        trainer.fit(model, dm, ckpt_path=model_cfg.ckpt_path)
     else:
-        trainer.fit(model, dm)
+        wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True), id=model_cfg.id, resume="must")
+
+    trainer = pl.Trainer(logger=wandb_logger)
+    trainer.test(model, dataloaders=dm.val_dataloader())
 
     wandb.finish()
 
@@ -99,4 +98,3 @@ def main(args):
 if __name__ == "__main__":
     args = cli()
     main(args)
-    

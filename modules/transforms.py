@@ -7,7 +7,62 @@ import fastmri
 from torch import nn
 import torch.nn.functional as F
 
+def normalize_to_minus_one_one(x):
+    """
+    Normalize a PyTorch tensor to the range [-1, 1].
 
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor normalized to [-1, 1].
+    """
+    x_min = x.min()
+    x_max = x.max()
+
+    # Handle edge case: all values equal
+    if x_max == x_min:
+        return torch.zeros_like(x)
+
+    x_norm = 2 * (x - x_min) / (x_max - x_min) - 1
+    return x_norm
+
+def pad_center(x: torch.Tensor, target_W: int = 640) -> torch.Tensor:
+    """
+    Pads the input tensor x along the width dimension (last dimension)
+    to the target width with zeros, centering the original content.
+    
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor of shape [N, C, H, W]
+    target_W : int
+        Desired width after padding
+    
+    Returns
+    -------
+    x_pad : torch.Tensor
+        Padded tensor of shape [N, C, H, target_W]
+    """
+    W = x.shape[-1]
+    if target_W == W:
+        return x
+    
+    if target_W < W:
+        left  = (W - target_W) // 2
+        right = left + target_W
+        return x[..., :, left:right] if x.ndim >= 2 and x.shape[-2] == 0 else x[..., left:right]
+    
+    pad_left  = (target_W - W) // 2
+    pad_right = target_W - W - pad_left
+    
+    x_pad = F.pad(x, (pad_left, pad_right), mode="constant", value=0.0)
+    
+    return x_pad
 
 class AdaptivePoolTransform(nn.Module):
     def __init__(self, output_size: Tuple[int, int], pool_type: Literal["avg", "max"] = "avg"):
@@ -572,7 +627,8 @@ class KspaceUNetDataTransform:
         kspace_torch = T.to_tensor(kspace)
         if self.adapt_pool:
             kspace_torch = kspace_torch.permute(2, 0, 1).contiguous()
-            kspace_torch = AdaptivePoolTransform((640,368))(kspace_torch)
+            kspace_torch = pad_center(kspace_torch, target_W=384)
+            # kspace_torch = AdaptivePoolTransform((640,384))(kspace_torch)
             kspace_torch = kspace_torch.permute(1, 2, 0).contiguous()
 
         seed = None if not self.use_seed else tuple(map(ord, fname))
