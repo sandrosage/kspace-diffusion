@@ -17,7 +17,8 @@ class WeightedSSIMKspaceAutoencoder(MRIModule):
                  n_mult: list[int] = [2, 4, 8, 16],
                  n_channels: int = 32,   
                  num_log_images = 32,
-                 ssim_weight: float = 0.7):
+                 ssim_weight: float = 0.7,
+                 undersampling: bool = False):
         super().__init__(num_log_images)
 
         self.in_channels = in_channels
@@ -27,6 +28,9 @@ class WeightedSSIMKspaceAutoencoder(MRIModule):
         self.down_layers = len(n_mult) + 1
         self.n_channels = n_channels
         self.ssim_weight = ssim_weight
+        self.undersampling = undersampling
+        
+        print(f"Undersampling: {self.undersampling}")
 
         self.save_hyperparameters()
         test_input = torch.randn(1, 2, 640, 384)
@@ -119,15 +123,18 @@ class WeightedSSIMKspaceAutoencoder(MRIModule):
             "outputs": None
         }
 
-        input = batch.full_kspace
+        if self.undersampling:
+            input = batch.masked_kspace
+        else:
+            input = batch.full_kspace
+        return_dict["inputs"] = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
         input, mean, std = norm(input)
         output = self(input)
-        return_dict["outputs"] = output
         output = unnorm(output, mean, std)
         output = output.permute(0,2,3,1).contiguous()
+        return_dict["outputs"] = output
         output_img = kspace_to_mri(output)
-        return_dict["inputs"] = input
         return_dict["reconstructions"] = output_img
 
         return return_dict
@@ -142,7 +149,8 @@ class KspaceAutoencoder(MRIModule):
                  latent_dim: int = 16,
                  n_mult: list[int] = [2, 4, 8, 16],
                  n_channels: int = 32,   
-                 num_log_images = 32):
+                 num_log_images = 32,
+                 undersampling: bool = False):
         super().__init__(num_log_images)
 
         self.in_channels = in_channels
@@ -151,6 +159,9 @@ class KspaceAutoencoder(MRIModule):
         self.n_mult = n_mult
         self.down_layers = len(n_mult) + 1
         self.n_channels = n_channels
+        self.undersampling = undersampling
+
+        print(f"Undersampling: {self.undersampling}")
 
         self.save_hyperparameters()
         test_input = torch.randn(1, 2, 640, 384)
@@ -239,15 +250,18 @@ class KspaceAutoencoder(MRIModule):
             "outputs": None
         }
 
-        input = batch.full_kspace
+        if self.undersampling:
+            input = batch.masked_kspace
+        else:
+            input = batch.full_kspace
+        return_dict["inputs"] = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
         input, mean, std = norm(input)
         output = self(input)
-        return_dict["outputs"] = output
         output = unnorm(output, mean, std)
         output = output.permute(0,2,3,1).contiguous()
+        return_dict["outputs"] = output
         output_img = kspace_to_mri(output)
-        return_dict["inputs"] = input
         return_dict["reconstructions"] = output_img
 
         return return_dict
@@ -268,7 +282,8 @@ class WeightedSSIMKspaceAutoencoderKL(MRIModule):
                 perceptual_weight: float = 0.3,  
                 kl_weight: float =  0.000001, 
                 disc_weight: float = 0.5,
-                num_log_images: int = 32):
+                num_log_images: int = 32,
+                undersampling: bool = False):
         super().__init__(num_log_images)
 
         self.automatic_optimization = False
@@ -284,6 +299,8 @@ class WeightedSSIMKspaceAutoencoderKL(MRIModule):
         self.perceptual_weight = perceptual_weight
         self.kl_weight = kl_weight
         self.disc_weight = disc_weight
+        self.undersampling = undersampling
+        print(f"Undersamling: {self.undersampling}")
 
         self.save_hyperparameters()
 
@@ -339,6 +356,7 @@ class WeightedSSIMKspaceAutoencoderKL(MRIModule):
     
     def training_step(self, batch: KspaceUNetSample, batch_idx):
         # 1. Preprocessing of batch
+        
         input = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
         input, mean, std = norm(input)
@@ -417,15 +435,18 @@ class WeightedSSIMKspaceAutoencoderKL(MRIModule):
             "inputs": None,
             "outputs": None
         }
+        if self.undersampling:
+            input = batch.masked_kspace
 
-        input = batch.full_kspace
+        else:
+            input = batch.full_kspace
+        return_dict["inputs"] = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
         input, mean, std = norm(input)
         output, _ = self.__forward(input)
-        return_dict["outputs"] = output
         output = unnorm(output, mean, std).permute(0, 2, 3, 1).contiguous()
+        return_dict["outputs"] = output
         output_img = kspace_to_mri(output)
-        return_dict["inputs"] = input
         return_dict["reconstructions"] = output_img
         return return_dict
 
@@ -460,7 +481,8 @@ class KspaceAutoencoderKL(MRIModule):
                 disc_start: int = 5000, 
                 perceptual_weight: float = 1.0,  
                 kl_weight: float =  0.000001, 
-                disc_weight: float = 0.5):
+                disc_weight: float = 0.5,
+                undersampling: bool = False):
         super().__init__(num_log_images)
 
         self.automatic_optimization = False
@@ -475,6 +497,9 @@ class KspaceAutoencoderKL(MRIModule):
         self.perceptual_weight = perceptual_weight
         self.kl_weight = kl_weight
         self.disc_weight = disc_weight
+        self.undersampling = undersampling
+
+        print(f"Undersampling: {self.undersampling}")
 
         self.save_hyperparameters()
 
@@ -597,6 +622,28 @@ class KspaceAutoencoderKL(MRIModule):
         return {
            "reconstructions": output_img
         }
+    
+    def test_step(self, batch: KspaceUNetSample, batch_idx):
+
+        return_dict = {
+            "reconstructions": None,
+            "inputs": None,
+            "outputs": None
+        }
+
+        if self.undersampling:
+            input = batch.masked_kspace
+        else:
+            input = batch.full_kspace
+        return_dict["inputs"] = batch.full_kspace
+        input = input.permute(0,3,1,2).contiguous()
+        input, mean, std = norm(input)
+        output, _ = self.__forward(input)
+        output = unnorm(output, mean, std).permute(0, 2, 3, 1).contiguous()
+        return_dict["outputs"] = output
+        output_img = kspace_to_mri(output)
+        return_dict["reconstructions"] = output_img
+        return return_dict
     
     def configure_optimizers(self):
         lr = 1e-5 # LDPM Paper reference

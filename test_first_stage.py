@@ -10,6 +10,7 @@ from fastmri.data.subsample import create_mask_for_mask_type
 from omegaconf import OmegaConf
 from modules.utils import get_from_config
 from argparse import ArgumentParser
+import json
 
 def extract_between_first_two_slashes(path: str) -> str:
     """
@@ -21,12 +22,15 @@ def extract_between_first_two_slashes(path: str) -> str:
     parts = path.split('/')
     if len(parts) < 3:
         raise ValueError("Input string must contain at least two '/' characters")
-    return parts[1]
+    return parts[0],parts[1]
 
 
 def cli():
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, help="Path to config file")
+    parser.add_argument("--undersampling", action="store_true", help="Flag for evaluation on undersampled k-space")
+    parser.add_argument("--accelerations", type = int, choices=[4,8], default= 4, help="Acceleration factor for undersampling mask")
+    parser.add_argument("--mask_type", type=str, choices=["random", "equispaced"], default="equispaced", help="Mask type for undersampling")
     return parser.parse_args()
 
 def main(args):
@@ -35,7 +39,7 @@ def main(args):
     model_cfg = config.model
     data_cfg = config.data
     try:
-        model_cfg.id = extract_between_first_two_slashes(model_cfg.ckpt_path)
+        model_name, model_cfg.id = extract_between_first_two_slashes(model_cfg.ckpt_path)
         print("Extracted ID:", model_cfg.id)
     except ValueError as e:
         print("Error extracting ID:", e)
@@ -45,13 +49,12 @@ def main(args):
 
     print(f"Use Checkpoint: {model_cfg.ckpt_path}")
     model = get_from_config(model_cfg)
-    model = model.load_from_checkpoint(model_cfg.ckpt_path, strict=False)
+    model = model.load_from_checkpoint(model_cfg.ckpt_path, strict=False, undersampling=args.undersampling)
 
-    mask_func_cfg = data_cfg.mask_func
     mask_func = create_mask_for_mask_type(
-        mask_func_cfg.type, 
-        mask_func_cfg.center_fractions, 
-        mask_func_cfg.accelerations
+        args.mask_type, 
+        [0.08], 
+        [args.accelerations]
     )
     train_transform = KspaceUNetDataTransform(
         mask_func=mask_func, 
@@ -82,6 +85,18 @@ def main(args):
 
     model_name = model_cfg.target.rsplit('.', 1)[-1]
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+
+    path = Path(f"evaluation/{model_name}/{model_cfg.id}")
+    
+    path.mkdir(parents=True, exist_ok=True)
+
+    if args.undersampling:
+        path = path / f"{args.accelerations}_{args.mask_type}.json"
+    else:
+        path = path / "full.json"
+
+    print(f"Evalution file path: {str(path)}")
+
     wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
     
     if model_cfg.id is None:
@@ -90,9 +105,17 @@ def main(args):
         wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True), id=model_cfg.id, resume="must")
 
     trainer = pl.Trainer(logger=wandb_logger)
-    trainer.test(model, dataloaders=dm.val_dataloader())
-
+    results = trainer.test(model, dataloaders=dm.val_dataloader())
     wandb.finish()
+
+    with open(path, "w") as f:
+        json.dump(results, f, indent=4)
+
+    # if args.undersampling:
+    #     path = path + 
+    # path = path + f"/{args.accelerations}_{args.mask_type}.json"
+    # with open(path, "w") as f:
+    #     json.dump(results, f, indent=4)
 
 
 if __name__ == "__main__":

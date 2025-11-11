@@ -10,6 +10,6 @@ data:
   transform:
     adapt_pool: True
   mask_func:
-    type: equispaced_fraction
+    type: equispaced
     center_fractions: [0.04]
     accelerations: [8]

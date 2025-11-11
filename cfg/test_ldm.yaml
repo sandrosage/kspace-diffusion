@@ -1,0 +1,29 @@
+model:
+  target: pl_modules.ldm_module.EmaLDM
+  ckpt_path: LDM_/7qwogo5c/checkpoints/last.ckpt
+  params:
+    in_channels: 16
+    out_channels: 16
+    rescale_latents: False
+    normalize_latents: False
+    block_out_channels: [128, 256, 512]
+
+first_stage:
+  target: pl_modules.diffusers_vae_module.WeightedSSIMKspaceAutoencoderKL
+  ckpt_path: WeightedSSIMKspaceAutoencoderKL/b63zsecl/checkpoints/WeightedSSIMKspaceAutoencoderKL-epoch=66.ckpt
+
+data:
+  target: pl_modules.data_module.LDMLatentDataModule
+  params: 
+    batch_size: 128
+    n_workers: 8
+    data_path: /home/atuin/b180dc/b180dc46/WeightedSSIMKspaceAutoencoderKL/b63zsecl
+    challenge: singlecoil
+
+trainer:
+  max_epochs: 1000
+  checkpoint:
+    top_k: 1
+    monitor: val/mse_noise_loss_epoch
+    mode: min
+               

@@ -1,9 +1,11 @@
 model:
   target: pl_modules.ldm_module.LDM
-  ckpt_path: 
+  ckpt_path: LDM_/om5fndg8/checkpoints/last.ckpt
   params:
     in_channels: 16
     out_channels: 16
+    rescale_latents: False
+    normalize_latents: False
 
 first_stage:
   target: pl_modules.diffusers_vae_module.WeightedSSIMKspaceAutoencoderKL
@@ -12,8 +14,8 @@ first_stage:
 data:
   target: pl_modules.data_module.LDMLatentDataModule
   params: 
-    batch_size: 32
-    n_workers: 8
+    batch_size: 128
+    n_workers: 16
     data_path: /home/atuin/b180dc/b180dc46/WeightedSSIMKspaceAutoencoderKL/b63zsecl
     challenge: singlecoil
 

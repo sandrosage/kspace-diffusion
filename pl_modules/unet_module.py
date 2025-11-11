@@ -12,7 +12,8 @@ class UNet(MRIModule):
                  downsample_layers: int = 4,
                  with_residuals: bool = True,
                  num_log_images: int = 32,
-                 norm: bool = True):
+                 norm: bool = True,
+                 undersampling: bool = False):
         
         super().__init__(num_log_images=num_log_images)
         self.in_channels = in_channels
@@ -22,6 +23,8 @@ class UNet(MRIModule):
         self.n_channels = n_channels
         self.with_residuals = with_residuals
         self.norm = norm
+        self.undersampling = undersampling
+        print(f"Undersampling: {self.undersampling}")
 
         self.save_hyperparameters()
 
@@ -94,18 +97,20 @@ class UNet(MRIModule):
             "inputs": None,
             "outputs": None
         }
-
-        input =  batch.full_kspace
+        if self.undersampling:
+            input = batch.masked_kspace
+        else:
+            input =  batch.full_kspace
+        return_dict["inputs"] = batch.full_kspace
         input = input.permute(0,3,1,2).contiguous()
         if self.norm:
             input, mean, std = norm(input)
         output = self(input)
-        return_dict["outputs"] = output
         if self.norm:
             output = unnorm(output, mean, std)
         output = output.permute(0,2,3,1).contiguous()
+        return_dict["outputs"] = output
         output_img = kspace_to_mri(output)
-        return_dict["inputs"] = input
         return_dict["reconstructions"] = output_img
         
         return return_dict 

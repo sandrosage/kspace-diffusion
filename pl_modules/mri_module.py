@@ -152,7 +152,7 @@ class MRIModule(pl.LightningModule):
         targets = batch.target
         max_vals = batch.max_value
 
-        self.log("test/lpips", self.perc_loss(normalize_to_minus_one_one(reconstructions.repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(targets.repeat(1,3,1,1).contiguous())), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
-        self.log("test/l1_kspace", l1_loss(outputs["outputs"], outputs["inputs"]), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
-        self.log("test/l1_image", l1_loss(reconstructions, targets), on_epoch=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.log("test/lpips", self.perc_loss(normalize_to_minus_one_one(reconstructions.repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(targets.repeat(1,3,1,1).contiguous())), on_epoch=True, on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.log("test/l1_kspace", l1_loss(outputs["outputs"], outputs["inputs"]), on_epoch=True ,on_step=True, sync_dist=True, batch_size=reconstructions.shape[0])
+        self.log("test/l1_image", l1_loss(reconstructions, targets), on_epoch=True, on_step=True,  sync_dist=True, batch_size=reconstructions.shape[0])
         self.calculate_metrics(reconstructions, targets, max_vals, "test")

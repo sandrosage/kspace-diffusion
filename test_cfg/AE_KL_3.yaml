@@ -1,21 +1,6 @@
 model:
   target: pl_modules.diffusers_vae_module.KspaceAutoencoderKL
-  ckpt_path: 
-  params:
-    in_channels: 2
-    out_channels: 2
-    latent_dim: 16
-    n_mult: [2, 4]
-    n_channels: 128  
-    num_log_images: 32
-    sample_posterior: False
-    disc_start: 5000
-    perceptual_weight: 1.0
-    kl_weight: 0.000001
-    disc_weight: 0.5  
-
-               
-
+  ckpt_path: KspaceAutoencoderKL/vuwzswa8/checkpoints/KspaceAutoencoderKL-epoch=25.ckpt
 
 data:
   batch_size: 1
@@ -25,14 +10,6 @@ data:
   transform:
     adapt_pool: True
   mask_func:
-    type: equispaced_fraction
-    center_fractions: [0.04]
-    accelerations: [8]
-
-
-trainer:
-  max_epochs: 100
-  checkpoint:
-    top_k: 1
-    monitor: val/ssim_epoch
-    mode: max
+    type: equispaced
+    center_fractions: [0.08]
+    accelerations: [4]

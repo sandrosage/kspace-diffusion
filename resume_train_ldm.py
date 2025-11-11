@@ -8,6 +8,7 @@ from argparse import ArgumentParser
 from omegaconf import OmegaConf
 from modules.utils import instantiate_from_config, get_from_config
 from pathlib import Path
+from pytorch_lightning.strategies import DDPStrategy
 
 def cli():
     parser = ArgumentParser()
@@ -24,7 +25,11 @@ def main(args):
     fs_cfg = config.first_stage
 
     first_stage = get_from_config(fs_cfg)
-    first_stage = first_stage.load_from_checkpoint(fs_cfg.ckpt_path)
+    try:
+        first_stage = first_stage.load_from_checkpoint(fs_cfg.ckpt_path)
+    except Exception as e:
+        print("Error in loading checkpoint: {e}")
+        first_stage = first_stage.load_from_checkpoint(fs_cfg.ckpt_path, strict=False)
 
 
     model = get_from_config(model_cfg)
@@ -32,7 +37,23 @@ def main(args):
         print(f"Use Checkpoint: {model_cfg.ckpt_path}")
         model = model.load_from_checkpoint(model_cfg.ckpt_path, first_stage=first_stage)
     else:
-        model = model(in_channels=model_cfg.params.in_channels, out_channels = model_cfg.params.out_channels, first_stage=first_stage)
+        if "EmaLDM" in str(model):
+            model = model(
+                in_channels=model_cfg.params.in_channels, 
+                out_channels = model_cfg.params.out_channels, 
+                first_stage=first_stage, 
+                rescale_latents=model_cfg.params.rescale_latents, 
+                normalize_latents=model_cfg.params.normalize_latents,
+                block_out_channels = model_cfg.params.block_out_channels
+            )
+        else:
+             model = model(
+                in_channels=model_cfg.params.in_channels, 
+                out_channels = model_cfg.params.out_channels, 
+                first_stage=first_stage, 
+                rescale_latents=model_cfg.params.rescale_latents, 
+                normalize_latents=model_cfg.params.normalize_latents
+            )
 
     if not isinstance(data_cfg.params.data_path, Path):
         data_cfg.params.data_path = Path(data_cfg.params.data_path) 
@@ -56,7 +77,7 @@ def main(args):
         filename=model_name + "-{epoch:02d}"
     )
 
-    trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint])
+    trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint], benchmark=True)
 
     # trainer = pl.Trainer(max_epochs=trainer_cfg.max_epochs, logger=wandb_logger, callbacks=[model_checkpoint], strategy="ddp_find_unused_parameters_true")
     if model_cfg.ckpt_path is not None:

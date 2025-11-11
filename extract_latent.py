@@ -31,13 +31,16 @@ def main(args):
     model_type, id = extract_between_first_two_slashes(ckpt_path)
     
     if model_type == "WeightedSSIMKspaceAutoencoderKL":
-        model = WeightedSSIMKspaceAutoencoderKL.load_from_checkpoint(ckpt_path)
+        model = WeightedSSIMKspaceAutoencoderKL.load_from_checkpoint(ckpt_path).eval()
     elif model_type == "WeightedSSIMKspaceAutoencoder":
-        model = WeightedSSIMKspaceAutoencoder.load_from_checkpoint(ckpt_path)   
+        model = WeightedSSIMKspaceAutoencoder.load_from_checkpoint(ckpt_path, strict=False).eval()   
     else:
         raise ValueError(f"Model type {model_type} not supported")
     
     print("Model loaded:", model_type, id)
+    for p in model.parameters():
+        p.requires_grad = False
+        
     partition = args.partition  # "train", "val", "test"
     challenge = "singlecoil"
     path = f"/home/atuin/b180dc/b180dc46/{model_type}/{id}/" + f"{challenge}_{partition}/"
@@ -65,8 +68,8 @@ def main(args):
     dl = torch.utils.data.DataLoader(ds)
     current_fname = next(iter(dl)).fname[0]
     hf = h5py.File(path + current_fname, "w")
-    full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 80, 48), maxshape=(None, 16, 80, 100), dtype="float32")
-    masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 80, 48), maxshape=(None, 16, 80, 100), dtype="float32")
+    full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 160, 96), maxshape=(None, 16, 160, 96), dtype="float32")
+    masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 160, 96), maxshape=(None, 16, 160, 96), dtype="float32")
     target_ds = hf.create_dataset("target", shape=(0, 1, 320, 320), maxshape=(None, 1, 320, 320), dtype="float32")
     mean_full_ds = hf.create_dataset("mean_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
     std_full_ds = hf.create_dataset("std_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
@@ -81,8 +84,8 @@ def main(args):
             print("Done: ", current_fname)
             hf.close()
             hf = h5py.File(path + fname, "w")
-            full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 80, 48), maxshape= (None, 16, 80, 100), dtype="float32")
-            masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 80, 48), maxshape= (None, 16, 80, 100), dtype="float32")
+            full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 160, 96), maxshape= (None, 16, 160, 96), dtype="float32")
+            masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 160, 96), maxshape= (None, 16, 160, 96), dtype="float32")
             target_ds = hf.create_dataset("target", shape=(0, 1, 320, 320), maxshape=(None, 1, 320, 320), dtype="float32")
             mean_full_ds = hf.create_dataset("mean_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
             std_full_ds = hf.create_dataset("std_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
