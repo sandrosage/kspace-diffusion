@@ -38,8 +38,10 @@ conda activate kdiff
 
 The project is based on the single-coil knee fastMRI dataset. It can be downloaded at the offical NYI fastMRI page [^1]
 
+---
+## 🧠 Training
 
-## 🧠 First-Stage: k-Space Autoencoders
+### First-Stage: K-Space Autoencoders
 
 We have implemented three different architectures:
 - U-net
@@ -50,30 +52,40 @@ The U-net follows the basic structure with the possibilty to remove the resiual 
 The Discrete Autoencoder is based on the Encoder and Decoder classes of the Hugging Face diffusers library. 
 The Variational Autoencoder follows the imlementation of the first-stage model in the LDM paper with diffusers backbone architecture AutoencoderKL.
 
+For the Discrete Autoencoder (AE) and the Variational Autoencoder there are also variants available that integrate the Structural Similarity Measure (SSIM) as part of the objective function.
 
-Train a K-AE model:
+- WeightedSSIMKspaceAutoencoder
+- WeightedSSIMKspaceAutoencoderKL
+
+
+#### Train a K-AE model:
+
+So in order to train your K-AE model you have to specify your config file via `--config`. It follows the basic structure of YAML and all the config files can be found in the `cfg`. If you want to train your own model based on different hyperparameters, you can use these config files as templates.
 
 ```bash
-python resume_train_first_stage.py --config cfg/<own>.yaml
+python resume_train_first_stage.py --config cfg/<own_file>.yaml --id <run_id>
 ```
 
-Supported architectures:
+For the training you can specify another flag, namely `--id`. This is the run id of the wandb run. So if you have already trained a model, then you can resume the training with the corresponding run id. For the first training run, you can leave the *checkpoint_path* empty in the config file, but if you want to resume the training then you also have to specify the path to the model checkpoints here.
 
-- **U-Net bottleneck encoder**
-- **Discrete Autoencoder (AE)**
-- **Variational Autoencoder (VAE)**
-- Variants with **SSIM-based losses**
+### Second-Stage: Latent Diffusion (LDenoiser)
 
-The trained autoencoder produces **low-dimensional latent embeddings** used for diffusion modeling.
+The LDM is based on an unconditional UNet2DModel from the diffusers library. The diffusion process is scheduled by the DDPMScheduler again from the diffusers libarry.
 
----
+#### Create the latent dataet
 
-## 🌫️ Second-Stage: Latent Diffusion (LDenoiser)
-
-Train a latent diffusion model on k-AE embeddings:
+For the training of the LDM, you first have to create the dataset. Therefore you have to provide the path to the checkpoints of the desired K-AE model via `--ckpt`. 
 
 ```bash
-python scripts/train_diffusion.py --config configs/ldm.yaml
+python extract_latent.py --ckpt <path_to_checkpoints> --partition train
+```
+
+#### Train the LDM (LDenoiser) on K-AE embeddings:
+
+So in order to train the LDM now, you have to specify the same flags as in the training configuration for the K-AE. The `--id` specifies the wandb run id and `--config` specifies the path to the config file for the LDM.
+
+```bash
+python resume_train_ldm.py --config cfg/<own_file>.yaml --id <run_id>
 ```
 
 This model learns to denoise latent samples and approximate the distribution of fully sampled k-space.
@@ -126,16 +138,10 @@ If you use this repository, please cite the corresponding master’s thesis:
 
 ---
 
-## 📄 License
-
-This project is released under the MIT License.
-
----
-
-## 🤝 Contributing
-
-Pull requests, issues, and discussions are welcome.  
-The repository is designed to support further research on **k-space diffusion**, **latent generative MRI models**, and **data-consistent sampling strategies**.
+## 👩‍⚖️ License
+Copyright © Sandro Sage.
+All rights reserved.
+Please see the [license file](LICENSE) for terms.
 
 ---
 
