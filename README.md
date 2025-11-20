@@ -1,4 +1,4 @@
-# kLD-MRI: Latent Diffusion in k-Space for Accelerated MRI Reconstruction
+# kLD-MRI: K-space latent diffusion for Accelerated MRI
 
 This repository contains the official implementation of **kLD-MRI**, a framework that explores the application of *latent diffusion models directly in k‑space* for accelerated MRI reconstruction.  
 It includes tools for dataset preprocessing, first‑stage autoencoder training, latent diffusion modeling, and the evaluation pipeline.
@@ -18,59 +18,43 @@ The project provides a complete pipeline for creating latent datasets, training 
 
 ---
 
-## 📂 Repository Structure
-
-```
-kLD-MRI/
-├── data/                    # Preprocessed k-space datasets or links to raw data
-├── kAE/                     # First-stage autoencoder architectures (U-Net, AE, VAE)
-├── diffusion/               # LDenoiser latent diffusion model
-├── cgs/                     # Consistency-Guidance Sampler implementation
-├── utils/                   # Preprocessing, masking, and helper functions
-├── configs/                 # Training and evaluation configs
-├── scripts/                 # Training & evaluation entry points
-└── README.md                # Project documentation
-```
-
----
-
 ## 🚀 Getting Started
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-repo/kLD-MRI.git
-cd kLD-MRI
+git clone https://github.com/sandrosage/kspace-diffusion.git
+cd kspace-diffusion
 ```
 
 ### 2. Install dependencies
 
 ```bash
-pip install -r requirements.txt
+conda env create -f environment.yaml
+conda activate kdiff
 ```
 
 ### 3. Prepare the dataset
 
-This framework uses **fully sampled and undersampled k-space data**.  
-You may use:
+The project is based on the single-coil knee fastMRI dataset. It can be downloaded at the offical NYI fastMRI page [^1]
 
-- **fastMRI** singlecoil knee dataset  
-- Custom datasets (must be stored as complex-valued tensors with shape `(2, H, W)`)
-
-Run preprocessing:
-
-```bash
-python scripts/preprocess_kspace.py --input <raw_path> --output <processed_path>
-```
-
----
 
 ## 🧠 First-Stage: k-Space Autoencoders
 
-Train a k-AE model:
+We have implemented three different architectures:
+- U-net
+- Discrete Autoencoder (KspaceAutoencoder)
+- Variational Autoencoder (KspaceAutoencoderKL)
+
+The U-net follows the basic structure with the possibilty to remove the resiual skip connections and input normalization.
+The Discrete Autoencoder is based on the Encoder and Decoder classes of the Hugging Face diffusers library. 
+The Variational Autoencoder follows the imlementation of the first-stage model in the LDM paper with diffusers backbone architecture AutoencoderKL.
+
+
+Train a K-AE model:
 
 ```bash
-python scripts/train_kAE.py --config configs/ae_4x.yaml
+python resume_train_first_stage.py --config cfg/<own>.yaml
 ```
 
 Supported architectures:
@@ -164,3 +148,5 @@ This project builds on concepts from:
 - Diffusion-based MRI reconstruction literature
 
 Special thanks to contributors and the research community exploring generative methods for medical imaging.
+
+[^1]: https://fastmri.med.nyu.edu/
