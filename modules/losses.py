@@ -46,20 +46,6 @@ def ssim(
     return ssim / gt.shape[0]
 
 
-
-class ELBOLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-    
-    def forward(self,rec_loss: torch.Tensor, kl_loss: torch.Tensor, input: torch.Tensor) -> torch.Tensor:
-        elbo = (rec_loss - kl_loss) / input.shape[0] # we want to maximize the elbo -> so we minimize the negative of the elbo
-        return elbo
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}"
-
-
-
 class LPIPSWithDiscriminator(nn.Module):
     def __init__(self, disc_start, logvar_init=0.0, kl_weight=1.0, pixelloss_weight=1.0,
                  disc_num_layers=3, disc_in_channels=3, disc_factor=1.0, disc_weight=1.0,

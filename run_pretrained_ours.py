@@ -37,38 +37,37 @@ class LDM_EVAL(pl.LightningModule):
 
 
     def test_step(self, batch, batch_idx):
-        if not (batch.slice_num.item() < 5):
-            output_kspace = self.cgs(batch)
-            output = kspace_to_mri(output_kspace)
-            target = batch.target
-            max_value = batch.max_value
+        output_kspace = self.cgs(batch)
+        output = kspace_to_mri(output_kspace)
+        target = batch.target
+        max_value = batch.max_value
 
-            metrics = {
-                "l1_loss": l1_loss(output_kspace, batch.full_kspace),
-                "lpips": self.perc_loss(normalize_to_minus_one_one(output.unsqueeze(0).repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(target.unsqueeze(0).repeat(1,3,1,1).contiguous()))
-            }
-            target = target.cpu().numpy()
-            output = output.cpu().numpy()
-            max_value = max_value.cpu().numpy()
-            metrics["ssim"] = torch.tensor(ssim(target, output, max_value)).to(self.device)
-            metrics["nmse"] = torch.tensor(nmse(target, output)).to(self.device)
-            metrics["psnr"] = torch.tensor(psnr(target, output, max_value)).to(self.device)
+        metrics = {
+            "l1_loss": l1_loss(output_kspace, batch.full_kspace),
+            "lpips": self.perc_loss(normalize_to_minus_one_one(output.unsqueeze(0).repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(target.unsqueeze(0).repeat(1,3,1,1).contiguous()))
+        }
+        target = target.cpu().numpy()
+        output = output.cpu().numpy()
+        max_value = max_value.cpu().numpy()
+        metrics["ssim"] = torch.tensor(ssim(target, output, max_value)).to(self.device)
+        metrics["nmse"] = torch.tensor(nmse(target, output)).to(self.device)
+        metrics["psnr"] = torch.tensor(psnr(target, output, max_value)).to(self.device)
 
-            self.ssim_lst.append(metrics["ssim"].detach().cpu())
-            self.nmse_list.append(metrics["nmse"].detach().cpu())
-            self.pnsr_list.append(metrics["psnr"].detach().cpu())
-            self.lpips_list.append(metrics["lpips"].detach().cpu())
+        self.ssim_lst.append(metrics["ssim"].detach().cpu())
+        self.nmse_list.append(metrics["nmse"].detach().cpu())
+        self.pnsr_list.append(metrics["psnr"].detach().cpu())
+        self.lpips_list.append(metrics["lpips"].detach().cpu())
 
-            if batch_idx % 40:
+        if batch_idx % 40:
 
-                if self.output_dir is not None:
-                    plt.imshow(output.squeeze(0), cmap="gray")    
-                    plt.axis("off")
-                    plt.tight_layout()
-                    plt.savefig(self.output_dir / (str(batch.fname[0][:-3]) +  "_" + str(batch.slice_num.item()) + ".png") , bbox_inches="tight", dpi=1000, pad_inches=0)
-                    plt.close()
+            if self.output_dir is not None:
+                plt.imshow(output.squeeze(0), cmap="gray")    
+                plt.axis("off")
+                plt.tight_layout()
+                plt.savefig(self.output_dir / (str(batch.fname[0][:-3]) +  "_" + str(batch.slice_num.item()) + ".png") , bbox_inches="tight", dpi=1000, pad_inches=0)
+                plt.close()
 
-            self.log_dict(metrics, on_epoch=True, on_step=True, sync_dist=True, batch_size=output.shape[0])
+        self.log_dict(metrics, on_epoch=True, on_step=True, sync_dist=True, batch_size=output.shape[0])
     
     def on_test_epoch_end(self):
         for metric,label in zip([self.ssim_lst, self.nmse_list, self.pnsr_list, self.lpips_list], ["ssim", "nmse", "psnr", "lpips"]):

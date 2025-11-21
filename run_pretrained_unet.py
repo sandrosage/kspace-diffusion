@@ -76,41 +76,40 @@ class UNET(pl.LightningModule):
     
     def test_step(self, batch, batch_idx):
         image, target, mean, std, fname, slice_num, max_value = batch
-        if not (slice_num.item() < 5):
-            with torch.no_grad():
-                output = self.model(image.to(self.device).unsqueeze(1)).squeeze(1)
-            mean = mean.unsqueeze(1).unsqueeze(2)
-            std = std.unsqueeze(1).unsqueeze(2)
-            output = (output * std + mean)
-            target = (target * std + mean)
+        with torch.no_grad():
+            output = self.model(image.to(self.device).unsqueeze(1)).squeeze(1)
+        mean = mean.unsqueeze(1).unsqueeze(2)
+        std = std.unsqueeze(1).unsqueeze(2)
+        output = (output * std + mean)
+        target = (target * std + mean)
 
-            metrics = {
-                "l1_loss": l1_loss(output, target),
-                "lpips": self.perc_loss(normalize_to_minus_one_one(output.unsqueeze(0).repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(target.unsqueeze(0).repeat(1,3,1,1).contiguous()))
-            }
-            target = target.cpu().numpy()
-            output = output.cpu().numpy()
-            max_value = max_value.cpu().numpy()
-            metrics["ssim"] = torch.tensor(ssim(target, output, max_value)).to(self.device)
-            metrics["nmse"] = torch.tensor(nmse(target, output)).to(self.device)
-            metrics["psnr"] = torch.tensor(psnr(target, output, max_value)).to(self.device)
+        metrics = {
+            "l1_loss": l1_loss(output, target),
+            "lpips": self.perc_loss(normalize_to_minus_one_one(output.unsqueeze(0).repeat(1,3,1,1).contiguous()), normalize_to_minus_one_one(target.unsqueeze(0).repeat(1,3,1,1).contiguous()))
+        }
+        target = target.cpu().numpy()
+        output = output.cpu().numpy()
+        max_value = max_value.cpu().numpy()
+        metrics["ssim"] = torch.tensor(ssim(target, output, max_value)).to(self.device)
+        metrics["nmse"] = torch.tensor(nmse(target, output)).to(self.device)
+        metrics["psnr"] = torch.tensor(psnr(target, output, max_value)).to(self.device)
 
-            self.ssim_lst.append(metrics["ssim"].detach().cpu())
-            self.nmse_list.append(metrics["nmse"].detach().cpu())
-            self.pnsr_list.append(metrics["psnr"].detach().cpu())
-            self.lpips_list.append(metrics["lpips"].detach().cpu())
-        
-            self.log_dict(metrics, on_epoch=True, on_step=True, sync_dist=True, batch_size=batch.image.shape[0])
+        self.ssim_lst.append(metrics["ssim"].detach().cpu())
+        self.nmse_list.append(metrics["nmse"].detach().cpu())
+        self.pnsr_list.append(metrics["psnr"].detach().cpu())
+        self.lpips_list.append(metrics["lpips"].detach().cpu())
+    
+        self.log_dict(metrics, on_epoch=True, on_step=True, sync_dist=True, batch_size=batch.image.shape[0])
 
-            if batch_idx % 40:
+        if batch_idx % 40:
 
-                if self.output_dir is not None:
+            if self.output_dir is not None:
 
-                    plt.imshow(output.squeeze(0), cmap="gray")
-                    plt.axis("off")
-                    plt.tight_layout()
-                    plt.savefig(self.output_dir / (str(fname[0][:-3]) +  "_" + str(slice_num.item()) + ".png") , bbox_inches="tight", dpi=1000, pad_inches=0)
-                    plt.close()
+                plt.imshow(output.squeeze(0), cmap="gray")
+                plt.axis("off")
+                plt.tight_layout()
+                plt.savefig(self.output_dir / (str(fname[0][:-3]) +  "_" + str(slice_num.item()) + ".png") , bbox_inches="tight", dpi=1000, pad_inches=0)
+                plt.close()
     
     def on_test_epoch_end(self):
         for metric,label in zip([self.ssim_lst, self.nmse_list, self.pnsr_list, self.lpips_list], ["ssim", "nmse", "psnr", "lpips"]):
@@ -124,12 +123,6 @@ class UNET(pl.LightningModule):
 def create_arg_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "--device",
-        default="cuda",
-        type=str,
-        help="Model to run",
     )
     parser.add_argument(
         "--state_dict_file",
@@ -170,7 +163,7 @@ def create_arg_parser():
 
     parser.add_argument(
         "--output_path",
-        default="/home/atuin/b180dc/b180dc46/UNet",
+        default=None,
         type=Path,
         required=False,
         help="Path where to store the output files"
@@ -185,7 +178,7 @@ if __name__ == "__main__":
 
     print(path)
 
-    args.output_path = None
+    # args.output_path = "/home/atuin/b180dc/b180dc46/UNet"
     output_dir = None
     if args.output_path is not None:
         output_dir = args.output_path  /str(args.mask_type) / str(args.accelerations) 

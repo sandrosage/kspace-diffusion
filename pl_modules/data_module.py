@@ -2,13 +2,30 @@ import pytorch_lightning as pl
 from pathlib import Path
 from torch.utils.data import DataLoader, Dataset
 import os
-from typing import Union, Optional, Callable
+from typing import Union, Optional, Callable, Tuple, NamedTuple
 import h5py
 from fastmri.data.mri_data import FastMRIRawDataSample
-from modules.transforms import LDMSample
 import pickle
 import torch
 from torch.utils.data import DistributedSampler
+
+class KspaceLDMSample(NamedTuple):
+    """
+    A subsampled image for U-Net reconstruction.
+
+    Args:
+        masked_kspace: Subsampled masked kspace 
+        kspace: fully sampled (original) kspace
+        target: The target image (if applicable).
+    """
+
+    masked_kspace: torch.Tensor
+    kspace: torch.Tensor
+    target: torch.Tensor
+    fname: str
+    slice_num: int
+    max_value: float
+    crop_size: Tuple[int,int]
 
 class LatentDataset(Dataset):
     def __init__(

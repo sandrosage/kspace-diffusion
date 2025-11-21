@@ -1,7 +1,6 @@
 import pytorch_lightning as pl
 from diffusers.models.unets.unet_2d import UNet2DModel
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.training_utils import EMAModel
 from contextlib import contextmanager
 from torch import optim
