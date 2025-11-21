@@ -141,7 +141,8 @@ python run_zero_filled.py --data_path <path_to_evaluation_set> -- accelerations 
 The U-Net evaluation can be executed with:
 
 ```bash
-python run_pretrained_unet.py```
+python run_pretrained_unet.py
+```
 The E2E-VarNet evaluatuion can be executed with:
 
 The kLD-MRI evaluation can be executed with:
