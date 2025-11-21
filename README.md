@@ -135,18 +135,36 @@ The 2E2-VarNet is based on the mulit-coil knee dataset from fastMRI [^2] and a s
 The ZF evaluation can be executed with:
 
 ```bash
-python run_zero_filled.py --data_path <path_to_evaluation_set> -- accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> 
+python run_zero_filled.py --data_path <path_to_evaluation_set> -- accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> --ouput_path <path_to_reconstructions>
 ```
 
 The U-Net evaluation can be executed with:
 
 ```bash
-python run_pretrained_unet.py
+python run_pretrained_unet.py --data_path <path_to_evalution_set> --accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> --output_path <path_to_reconstructions>
 ```
+
 The E2E-VarNet evaluatuion can be executed with:
 
-The kLD-MRI evaluation can be executed with:
+```bash
+python run_pretrained_varnet.py --data_path <path_to_evalution_set> --accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> --output_path <path_to_reconstructions>
+```
 
+The kLD-MRI evaluation can be executed with:
+```bash
+python run_pretrained_ours.py --data_path <path_to_evalution_set> --accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> --output_path <path_to_reconstructions> --timesteps <t> --cgs
+```
+
+For the evaluation scripts, the path to the validation set can be specified with `--data_path` and undersampling parameters can be set by:
+- `accelerations`: (int) accelerations factor (4,8)
+- `--mask_type`: (str) type of mask function (random, equispaced, etc.)
+- `--center_fractions`: (float) fraction of ACS frequencies (0.04, 0.08)
+
+If you want to store the reconstructions, you can specify the store path with `--output_path`.
+
+For the kLD-MRI evaluation, you can set:
+- `timesteps`: (int) number of diffusion timesteps
+- `cgs`: (bool) boolean flag for activating CGS or leaving it deactivated
 
 [^2]: https://github.com/facebookresearch/fastMRI
 [^3]: https://arxiv.org/abs/2004.06688
