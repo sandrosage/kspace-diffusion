@@ -1,4 +1,4 @@
-from pl_modules.diffusers_vae_module import WeightedSSIMKspaceAutoencoderKL, WeightedSSIMKspaceAutoencoder
+from pl_modules.diffusers_vae_module import WeightedSSIMKspaceAutoencoderKL, WeightedSSIMKspaceAutoencoder, KspaceAutoencoder, KspaceAutoencoderKL
 from modules.transforms import KspaceUNetDataTransform, norm
 from pathlib import Path
 from fastmri.data import SliceDataset
@@ -34,12 +34,21 @@ def main(args):
         model = WeightedSSIMKspaceAutoencoderKL.load_from_checkpoint(ckpt_path).eval()
     elif model_type == "WeightedSSIMKspaceAutoencoder":
         model = WeightedSSIMKspaceAutoencoder.load_from_checkpoint(ckpt_path, strict=False).eval()   
+    elif model_type == "KspaceAutoencoder":
+        model = KspaceAutoencoder.load_from_checkpoint(ckpt_path, strict=False)
+    elif model_type == "KspaceAutoencoderKL":
+        model = KspaceAutoencoderKL.load_from_checkpoint(ckpt_path, strict=False)
     else:
         raise ValueError(f"Model type {model_type} not supported")
     
     print("Model loaded:", model_type, id)
     for p in model.parameters():
         p.requires_grad = False
+    
+    down_factor = 2**(model.down_layers-1)
+    print("Downsampling factor: ", down_factor)
+    out_shape = (0, model.latent_dim, 640 // down_factor, 384 // down_factor)
+    print(out_shape)
         
     partition = args.partition  # "train", "val", "test"
     challenge = "singlecoil"
@@ -68,8 +77,8 @@ def main(args):
     dl = torch.utils.data.DataLoader(ds)
     current_fname = next(iter(dl)).fname[0]
     hf = h5py.File(path + current_fname, "w")
-    full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 160, 96), maxshape=(None, 16, 160, 96), dtype="float32")
-    masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 160, 96), maxshape=(None, 16, 160, 96), dtype="float32")
+    full_ds = hf.create_dataset("full_latent_tensor", shape=out_shape, maxshape=(None, 16, 160, 96), dtype="float32")
+    masked_ds = hf.create_dataset("masked_latent_tensor", shape=out_shape, maxshape=(None, 16, 160, 96), dtype="float32")
     target_ds = hf.create_dataset("target", shape=(0, 1, 320, 320), maxshape=(None, 1, 320, 320), dtype="float32")
     mean_full_ds = hf.create_dataset("mean_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
     std_full_ds = hf.create_dataset("std_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
@@ -84,8 +93,8 @@ def main(args):
             print("Done: ", current_fname)
             hf.close()
             hf = h5py.File(path + fname, "w")
-            full_ds = hf.create_dataset("full_latent_tensor", shape=(0, 16, 160, 96), maxshape= (None, 16, 160, 96), dtype="float32")
-            masked_ds = hf.create_dataset("masked_latent_tensor", shape=(0, 16, 160, 96), maxshape= (None, 16, 160, 96), dtype="float32")
+            full_ds = hf.create_dataset("full_latent_tensor", shape=out_shape, maxshape= (None, 16, 160, 96), dtype="float32")
+            masked_ds = hf.create_dataset("masked_latent_tensor", shape=out_shape, maxshape= (None, 16, 160, 96), dtype="float32")
             target_ds = hf.create_dataset("target", shape=(0, 1, 320, 320), maxshape=(None, 1, 320, 320), dtype="float32")
             mean_full_ds = hf.create_dataset("mean_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")
             std_full_ds = hf.create_dataset("std_full", shape=(0, 2, 1, 1), maxshape=(None, 2, 1, 1), dtype="float32")

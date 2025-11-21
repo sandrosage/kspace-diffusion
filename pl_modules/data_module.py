@@ -101,7 +101,8 @@ class LDMLatentDataModule(pl.LightningDataModule):
             train_transform: Optional[Callable] = None,
             val_transform: Optional[Callable] = None,
             test_transform: Optional[Callable] = None,
-            use_dataset_cache_file: bool = True
+            use_dataset_cache_file: bool = True,
+            distributed_sampler: bool = True
             ):
         super().__init__()
 
@@ -115,6 +116,7 @@ class LDMLatentDataModule(pl.LightningDataModule):
         self.train_transform = train_transform
         self.val_transform = val_transform
         self.use_dataset_cache_file = use_dataset_cache_file
+        self.distributed_sampler = distributed_sampler
 
 
     def prepare_data(self):
@@ -160,16 +162,25 @@ class LDMLatentDataModule(pl.LightningDataModule):
             transform = self.train_transform,
             use_dataset_cache=self.use_dataset_cache_file
             )
-            
-        return DataLoader(
-            self.train_dataset, 
-            batch_size=self.batch_size, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            multiprocessing_context="forkserver",
-            prefetch_factor=4,
-            sampler=DistributedSampler(self.train_dataset, shuffle=True, drop_last=True)
-            )
+        if self.distributed_sampler:
+            return DataLoader(
+                self.train_dataset, 
+                batch_size=self.batch_size, 
+                num_workers=self.num_workers,
+                persistent_workers=True,
+                multiprocessing_context="forkserver",
+                prefetch_factor=4,
+                sampler=DistributedSampler(self.train_dataset, shuffle=True, drop_last=True)
+                )
+        else:
+            return DataLoader(
+                self.train_dataset, 
+                batch_size=self.batch_size, 
+                num_workers=self.num_workers,
+                persistent_workers=True,
+                multiprocessing_context="forkserver",
+                prefetch_factor=4,
+                )
     
     def val_dataloader(self):
         self.val_dataset = LatentDataset(
@@ -179,15 +190,25 @@ class LDMLatentDataModule(pl.LightningDataModule):
                 use_dataset_cache=self.use_dataset_cache_file
             )
         
-        return DataLoader(
-            self.val_dataset, 
-            batch_size=self.batch_size, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            multiprocessing_context="forkserver",
-            prefetch_factor=4,
-            sampler = DistributedSampler(self.val_dataset, shuffle=False, drop_last=True),
-            )
+        if self.distributed_sampler:
+            return DataLoader(
+                self.val_dataset, 
+                batch_size=self.batch_size, 
+                num_workers=self.num_workers,
+                persistent_workers=True,
+                multiprocessing_context="forkserver",
+                prefetch_factor=4,
+                sampler = DistributedSampler(self.val_dataset, shuffle=False, drop_last=True),
+                )
+        else:
+            return DataLoader(
+                self.val_dataset, 
+                batch_size=self.batch_size, 
+                num_workers=self.num_workers,
+                persistent_workers=True,
+                multiprocessing_context="forkserver",
+                prefetch_factor=4,
+                )
     
     # def test_dataloader(self):
     #     self.test_dataset = LatentDataset(

@@ -16,6 +16,13 @@ Conventional diffusion-based MRI reconstruction methods operate in the **image d
 
 The project provides a complete pipeline for creating latent datasets, training first‑stage models, and experimenting with diffusion-based reconstruction in latent k-space.
 
+The pipeline:
+
+1. Encode undersampled k-space  
+2. Perform latent diffusion with CGS  
+3. Decode to full k-space  
+4. Apply inverse FFT for image reconstruction
+
 ---
 
 ## 🚀 Getting Started
@@ -72,9 +79,10 @@ For the training you can specify another flag, namely `--id`. This is the run id
 
 The LDM is based on an unconditional UNet2DModel from the diffusers library. The diffusion process is scheduled by the DDPMScheduler again from the diffusers libarry.
 
-#### Create the latent dataet
+#### Create the latent dataset
 
-For the training of the LDM, you first have to create the dataset. Therefore you have to provide the path to the checkpoints of the desired K-AE model via `--ckpt`. 
+For the training of the LDM, you first have to create the dataset. Therefore you have to provide the path to the checkpoints of the desired K-AE model via `--ckpt`.
+With the `--partition` flag, you can specify the partition (train, val, test) on which you want to generate the latent embeddings dataset.
 
 ```bash
 python extract_latent.py --ckpt <path_to_checkpoints> --partition train
@@ -92,25 +100,6 @@ This model learns to denoise latent samples and approximate the distribution of 
 
 ---
 
-## 🔄 Consistency-Guidance Sampler (CGS)
-
-The CGS is used **during inference** to enforce partial data consistency.
-
-Run inference on undersampled k-space:
-
-```bash
-python scripts/run_inference.py --config configs/inference.yaml
-```
-
-The pipeline:
-
-1. Encode undersampled k-space  
-2. Perform latent diffusion with CGS  
-3. Decode to full k-space  
-4. Apply inverse FFT for image reconstruction
-
----
-
 ## 📊 Evaluation
 
 Evaluation metrics include:
@@ -120,13 +109,15 @@ Evaluation metrics include:
 - **NMSE**
 - **LPIPS**
 
-Example:
+You can either evaluate the first-stage models using:
 
 ```bash
-python scripts/evaluate.py --pred <results_path> --target <gt_path>
+python test_first_stage.py --config test_cfg/<own_file>.yaml --undersampling -- accelerations 8 --mask_type equispaced
 ```
 
----
+The `--config` flag determines the path to the evaluation configuration. Similar to the template in the training phase. In the `test_cfg/` directory, you can find some templates. Additionally, you can activate the `--undersampling` flag, so that the model is tested on undersampled k-space and not on fully sampled k-space. Therefore, further configurations have to be set:
+- `accelerations`: (int) accelerations factor (4,8)
+- `--mask_type`: (str) type of mask function (random, equispaced, etc.)
 
 ## 📘 Citation
 
