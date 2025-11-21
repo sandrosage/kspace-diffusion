@@ -108,16 +108,48 @@ Evaluation metrics include:
 - **SSIM**
 - **NMSE**
 - **LPIPS**
+- **L1-K**
 
-You can either evaluate the first-stage models using:
+### First-stage K-AE evaluation
+You can evaluate the first-stage models using:
 
 ```bash
-python test_first_stage.py --config test_cfg/<own_file>.yaml --undersampling -- accelerations 8 --mask_type equispaced
+python test_first_stage.py --config test_cfg/<own_file>.yaml --undersampling -- accelerations <factor> --mask_type <type_of_mask>
 ```
 
 The `--config` flag determines the path to the evaluation configuration. Similar to the template in the training phase. In the `test_cfg/` directory, you can find some templates. Additionally, you can activate the `--undersampling` flag, so that the model is tested on undersampled k-space and not on fully sampled k-space. Therefore, further configurations have to be set:
 - `accelerations`: (int) accelerations factor (4,8)
 - `--mask_type`: (str) type of mask function (random, equispaced, etc.)
+
+
+### Evaluation of methods
+The related methods are:
+
+- Zero-Filled (ZF) [^2]
+- U-Net [^2]
+- E2E-VarNet [^3]
+
+The model checkpoints are from the fastMRI repository [^2] and the checkpoints are automatically downloaded at the first time execution. 
+The 2E2-VarNet is based on the mulit-coil knee dataset from fastMRI [^2] and a singleton coil dimension is added for compatability.
+
+The ZF evaluation can be executed with:
+
+```bash
+python run_zero_filled.py --data_path <path_to_evaluation_set> -- accelerations <factor> --center_fractions <fraction> --mask_type <type_of_mask> 
+```
+
+The U-Net evaluation can be executed with:
+
+```bash
+python run_pretrained_unet.py```
+The E2E-VarNet evaluatuion can be executed with:
+
+The kLD-MRI evaluation can be executed with:
+
+
+[^2]: https://github.com/facebookresearch/fastMRI
+[^3]: https://arxiv.org/abs/2004.06688
+
 
 ## 📘 Citation
 

@@ -180,7 +180,7 @@ def create_arg_parser():
 
     parser.add_argument(
         "--output_path",
-        default="/home/atuin/b180dc/b180dc46/ZF",
+        default=None,
         type=Path,
         required=False,
         help="Path where to store the output files"
@@ -196,6 +196,7 @@ if __name__ == "__main__":
 
     print(path)
     args.output_path = None
+    # args.output_path = "/home/atuin/b180dc/b180dc46/ZF"
     output_dir = None
     if args.output_path is not None:
         output_dir = args.output_path  /str(args.mask_type) / str(args.accelerations) 
