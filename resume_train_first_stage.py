@@ -12,8 +12,6 @@ from omegaconf import OmegaConf
 from modules.utils import instantiate_from_config, get_from_config
 from argparse import ArgumentParser
 
-# id: b8c2wp3g
-
 def cli():
     parser = ArgumentParser()
     parser.add_argument("--config", type=str, help="Path to config file")
@@ -69,7 +67,8 @@ def main(args):
 
     model_name = model_cfg.target.rsplit('.', 1)[-1]
     run_name = model_name + "_" + datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
+    # You need to specify your wandb login keys here:
+    # wandb.login(key="")
     
     if args.id is not None:
         wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True), id=args.id, resume="must")
