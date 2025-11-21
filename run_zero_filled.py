@@ -190,10 +190,11 @@ def create_arg_parser():
 if __name__ == "__main__":
     args = create_arg_parser().parse_args()
     
-    path = f"evaluation/ZF/{args.mask_type}_{args.accelerations}_zero_filled.json"
+    path = Path("evaluation/ZF")
+    path.mkdir(parents=True, exist_ok=True)
+    path = path / f"{args.mask_type}_{args.accelerations}_zf.json"
 
     print(path)
-    args.output_path = None
     # args.output_path = "/home/atuin/b180dc/b180dc46/ZF"
     output_dir = None
     if args.output_path is not None:

@@ -90,13 +90,6 @@ def create_arg_parser():
     )
 
     parser.add_argument(
-        "--device",
-        default="cuda",
-        type=str,
-        help="Model to run",
-    )
-
-    parser.add_argument(
         "--model_path",
         default="LDM_/xfv8d48c/checkpoints/last.ckpt",
         type=Path,
@@ -142,9 +135,11 @@ def create_arg_parser():
     )
 
     parser.add_argument(
-        "--store_files",
-        action="store_true",
-        help="Path flag to store the output files"
+        "--output_path",
+        default=None,
+        type=Path,
+        required=False,
+        help="Path where to store the output files"
     )
 
     parser.add_argument(
@@ -159,27 +154,24 @@ def create_arg_parser():
 if __name__ == "__main__":
     args = create_arg_parser().parse_args()
     
-    if args.cgs:
-        path = f"evaluation/Ours/new_cgs_{args.mask_type}_{args.accelerations}_{args.timesteps}_ours.json"
-    else:
-        path = f"evaluation/Ours/new_{args.mask_type}_{args.accelerations}_{args.timesteps}_ours.json"
+    path = Path("evaluation/Ours")
+    path.mkdir(parents=True, exist_ok=True)
 
-    if args.store_files:
-        output_path = Path("/home/atuin/b180dc/b180dc46/LDM")
-        print(f"Store files: {args.store_files}")
+    if args.cgs:
+        path = path / f"cgs_{args.mask_type}_{args.accelerations}_{args.timesteps}_ours.json"
     else:
-        output_path = None
+        path = path / f"{args.mask_type}_{args.accelerations}_{args.timesteps}_ours.json"
 
     print(path)
 
     print(f"Use CGS: {args.cgs}")
-
+    # args.output_path = Path("/home/atuin/b180dc/b180dc46/LDM")
     output_dir = None
-    if output_path is not None:
+    if args.output_path is not None:
         if args.cgs:
-            output_dir = output_path / str(args.mask_type) / str(args.accelerations) / str(args.timesteps) / "cgs"
+            output_dir = args.output_path / str(args.mask_type) / str(args.accelerations) / str(args.timesteps) / "cgs"
         else:
-            output_dir = output_path / str(args.mask_type) / str(args.accelerations) / str(args.timesteps) / "no_cgs"
+            output_dir = args.output_path / str(args.mask_type) / str(args.accelerations) / str(args.timesteps) / "no_cgs"
         output_dir.mkdir(parents=True, exist_ok=True)
 
     model = LDM_EVAL(args.model_path, args.first_stage_path, args.timesteps, output_dir, args.cgs)

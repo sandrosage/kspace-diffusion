@@ -9,23 +9,13 @@ import pickle
 import torch
 from torch.utils.data import DistributedSampler
 
-class KspaceLDMSample(NamedTuple):
-    """
-    A subsampled image for U-Net reconstruction.
-
-    Args:
-        masked_kspace: Subsampled masked kspace 
-        kspace: fully sampled (original) kspace
-        target: The target image (if applicable).
-    """
-
-    masked_kspace: torch.Tensor
-    kspace: torch.Tensor
+class LDMSample(NamedTuple):
+    full_latent_tensor: torch.Tensor
+    masked_latent_tensor: torch.Tensor
+    # masked_latent_tensor: torch.Tensor
     target: torch.Tensor
-    fname: str
-    slice_num: int
-    max_value: float
-    crop_size: Tuple[int,int]
+    metadata: dict 
+    fname: str 
 
 class LatentDataset(Dataset):
     def __init__(

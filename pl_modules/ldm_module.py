@@ -4,9 +4,8 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from contextlib import contextmanager
 from torch import optim
-from modules.transforms import norm, unnorm, LDMSample, kspace_to_mri 
+from modules.transforms import norm, unnorm, kspace_to_mri 
 import torch
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -14,6 +13,7 @@ import wandb
 from fastmri.evaluate import nmse
 from modules.losses import ssim, psnr
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from pl_modules.data_module import LDMSample
 
 def to_range(step: torch.Tensor, device):
     return torch.arange(int(step.item()), -1, -1, device=device)

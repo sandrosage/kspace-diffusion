@@ -193,8 +193,10 @@ def create_arg_parser():
 if __name__ == "__main__":
 
     args = create_arg_parser().parse_args()
-
-    path = f"evaluation/VarNet/{args.mask_type}_{args.accelerations}_varnet.json"
+    
+    path = Path("evaluation/VarNet")
+    path.mkdir(parents=True, exist_ok=True)
+    path = path / f"{args.mask_type}_{args.accelerations}_varnet.json"
 
     print(path)
     output_dir = None

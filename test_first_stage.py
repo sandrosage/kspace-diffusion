@@ -96,8 +96,8 @@ def main(args):
         path = path / "full.json"
 
     print(f"Evalution file path: {str(path)}")
-
-    wandb.login(key="c210746318a0cf3a3fb1d542db1864e0a789e94c")
+    # You need to specify your wandb login keys here:
+    # wandb.login(key="")
     
     if model_cfg.id is None:
         wandb_logger = WandbLogger(project=model_name, name=run_name, log_model=False, config=OmegaConf.to_container(config, resolve=True))

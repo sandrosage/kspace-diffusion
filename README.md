@@ -5,7 +5,7 @@ It includes tools for dataset preprocessing, first‑stage autoencoder training,
 
 ---
 
-## 🌐 Overview
+## Overview
 
 Conventional diffusion-based MRI reconstruction methods operate in the **image domain**, potentially losing access to the informative high‑frequency structure that naturally resides in k‑space.  
 **kLD-MRI** investigates whether generative models can instead operate *directly in the frequency domain*, leveraging:
@@ -25,7 +25,7 @@ The pipeline:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Clone the repository
 
@@ -46,7 +46,7 @@ conda activate kdiff
 The project is based on the single-coil knee fastMRI dataset. It can be downloaded at the offical NYI fastMRI page [^1]
 
 ---
-## 🧠 Training
+## Training
 
 ### First-Stage: K-Space Autoencoders
 
@@ -100,7 +100,7 @@ This model learns to denoise latent samples and approximate the distribution of 
 
 ---
 
-## 📊 Evaluation
+## Evaluation
 
 Evaluation metrics include:
 
@@ -165,18 +165,11 @@ If you want to store the reconstructions, you can specify the store path with `-
 For the kLD-MRI evaluation, you can set:
 - `timesteps`: (int) number of diffusion timesteps
 - `cgs`: (bool) boolean flag for activating CGS or leaving it deactivated
+- `first_stage_path`: (Path) path to the first-stage K-AE checkpoints
+- `model_path`: (Path) path to the LDM LDenoiser checkpoints
 
 [^2]: https://github.com/facebookresearch/fastMRI
 [^3]: https://arxiv.org/abs/2004.06688
-
-
-## 📘 Citation
-
-If you use this repository, please cite the corresponding master’s thesis:
-
-```
-[Add citation once published]
-```
 
 ---
 
@@ -186,15 +179,5 @@ All rights reserved.
 Please see the [license file](LICENSE) for terms.
 
 ---
-
-## 🧩 Acknowledgements
-
-This project builds on concepts from:
-
-- Latent Diffusion Models (LDM)
-- fastMRI dataset
-- Diffusion-based MRI reconstruction literature
-
-Special thanks to contributors and the research community exploring generative methods for medical imaging.
 
 [^1]: https://fastmri.med.nyu.edu/
