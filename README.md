@@ -23,6 +23,8 @@ The pipeline:
 3. Decode to full k-space  
 4. Apply inverse FFT for image reconstruction
 
+![Diagram](Framework.png)
+
 ---
 
 ## Getting Started
@@ -172,6 +174,18 @@ For the kLD-MRI evaluation, you can set:
 [^3]: https://arxiv.org/abs/2004.06688
 
 ---
+## K-AE Model ZOO
+In the first release with tag v1.0.0 all trained first-stage K-AE models can be downloaded here [^4].
+The model description is as follows:
+
+- U-net
+- AE (KspaceAutoencoder)
+- SSIM_AE (WeightedSSIMKspaceAutoencoder)
+- VAE (KspaceAutoencoderKL)
+- SSIM_VAE (WeightedSSIMKspaceAutoencoderKL)
+
+The number is indicating the downsampling factor and for the VAE models two options exist. Either latent posterior sampling *(_s)*, or mode of distrubution.
+You can choose between three different variants of U-net. With or without *(_no_R)* residual skip connections in connection without *(no_N)* input normalization.
 
 ## 👩‍⚖️ License
 Copyright © Sandro Sage.
@@ -181,3 +195,4 @@ Please see the [license file](LICENSE) for terms.
 ---
 
 [^1]: https://fastmri.med.nyu.edu/
+[^4]: https://github.com/sandrosage/kspace-diffusion/releases/tag/v1.0.0
